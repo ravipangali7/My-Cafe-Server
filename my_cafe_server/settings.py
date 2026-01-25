@@ -68,6 +68,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:8080',
     'http://127.0.0.1:8080',
     'https://mycafe.sewabyapar.com',
+    'https://mycafeserver.sewabyapar.com',  # Add if your frontend uses this domain
 ]
 CORS_ALLOW_CREDENTIALS = True
 
@@ -76,15 +77,19 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8080',
     'http://127.0.0.1:8080',
     'https://mycafe.sewabyapar.com',
+    'https://mycafeserver.sewabyapar.com',  # Add if your frontend uses this domain
 ]
 
-# Session cookie settings for same-origin requests (localhost to localhost)
-SESSION_COOKIE_SAMESITE = 'Lax'  # Works for same-origin (localhost to localhost)
-SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+# Session cookie settings for production (HTTPS)
+# Check if we're in production (HTTPS)
+USE_HTTPS = not DEBUG  # Set to True in production
+
+SESSION_COOKIE_SAMESITE = 'None' if USE_HTTPS else 'Lax'  # None for cross-site with HTTPS
+SESSION_COOKIE_SECURE = USE_HTTPS  # True for HTTPS, False for HTTP
 SESSION_COOKIE_HTTPONLY = True  # Prevent JavaScript access (security)
 SESSION_COOKIE_AGE = 86400  # 24 hours
 SESSION_SAVE_EVERY_REQUEST = True  # Save session on every request
-SESSION_COOKIE_DOMAIN = None  # None allows cookies for both localhost and 127.0.0.1
+SESSION_COOKIE_DOMAIN = None  # None allows cookies for all domains (or set specific domain)
 SESSION_COOKIE_PATH = '/'  # Ensure cookie is available for all paths
 
 ROOT_URLCONF = 'my_cafe_server.urls'
