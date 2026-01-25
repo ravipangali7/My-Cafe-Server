@@ -1,0 +1,246 @@
+from rest_framework import serializers
+from .models import (
+    User, Unit, Category, Product, ProductVariant,
+    Order, OrderItem, TransactionHistory, SuperSetting
+)
+
+
+class UserSerializer(serializers.ModelSerializer):
+    logo_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = ['id', 'name', 'phone', 'logo_url', 'expire_date', 'is_active', 'is_superuser', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_logo_url(self, obj):
+        if obj.logo:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.logo.url)
+            return obj.logo.url
+        return None
+
+
+class UnitSerializer(serializers.ModelSerializer):
+    user_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Unit
+        fields = ['id', 'name', 'symbol', 'user', 'user_info', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_user_info(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_superuser and obj.user:
+            if obj.user.logo:
+                if request:
+                    return {
+                        'id': obj.user.id,
+                        'name': obj.user.name,
+                        'phone': obj.user.phone,
+                        'logo_url': request.build_absolute_uri(obj.user.logo.url)
+                    }
+                else:
+                    return {
+                        'id': obj.user.id,
+                        'name': obj.user.name,
+                        'phone': obj.user.phone,
+                        'logo_url': obj.user.logo.url
+                    }
+            return {
+                'id': obj.user.id,
+                'name': obj.user.name,
+                'phone': obj.user.phone,
+                'logo_url': None
+            }
+        return None
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+    user_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Category
+        fields = ['id', 'name', 'image_url', 'user', 'user_info', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_image_url(self, obj):
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+    
+    def get_user_info(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_superuser and obj.user:
+            if obj.user.logo:
+                if request:
+                    return {
+                        'id': obj.user.id,
+                        'name': obj.user.name,
+                        'phone': obj.user.phone,
+                        'logo_url': request.build_absolute_uri(obj.user.logo.url)
+                    }
+                else:
+                    return {
+                        'id': obj.user.id,
+                        'name': obj.user.name,
+                        'phone': obj.user.phone,
+                        'logo_url': obj.user.logo.url
+                    }
+            return {
+                'id': obj.user.id,
+                'name': obj.user.name,
+                'phone': obj.user.phone,
+                'logo_url': None
+            }
+        return None
+
+
+class ProductVariantSerializer(serializers.ModelSerializer):
+    unit_name = serializers.CharField(source='unit.name', read_only=True)
+    unit_symbol = serializers.CharField(source='unit.symbol', read_only=True)
+    
+    class Meta:
+        model = ProductVariant
+        fields = ['id', 'unit', 'unit_name', 'unit_symbol', 'price', 'discount_type', 'discount_value', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    variants = ProductVariantSerializer(many=True, read_only=True)
+    user_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Product
+        fields = ['id', 'name', 'image_url', 'category', 'category_name', 'type', 'is_active', 'variants', 'user', 'user_info', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_image_url(self, obj):
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+    
+    def get_user_info(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_superuser and obj.user:
+            if obj.user.logo:
+                if request:
+                    return {
+                        'id': obj.user.id,
+                        'name': obj.user.name,
+                        'phone': obj.user.phone,
+                        'logo_url': request.build_absolute_uri(obj.user.logo.url)
+                    }
+                else:
+                    return {
+                        'id': obj.user.id,
+                        'name': obj.user.name,
+                        'phone': obj.user.phone,
+                        'logo_url': obj.user.logo.url
+                    }
+            return {
+                'id': obj.user.id,
+                'name': obj.user.name,
+                'phone': obj.user.phone,
+                'logo_url': None
+            }
+        return None
+
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    variant_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = OrderItem
+        fields = ['id', 'product', 'product_name', 'product_variant', 'variant_info', 'price', 'quantity', 'total', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_variant_info(self, obj):
+        if obj.product_variant:
+            return {
+                'unit_name': obj.product_variant.unit.name,
+                'unit_symbol': obj.product_variant.unit.symbol,
+                'price': str(obj.product_variant.price)
+            }
+        return None
+
+
+class OrderSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True, read_only=True)
+    vendor = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Order
+        fields = ['id', 'name', 'phone', 'table_no', 'status', 'payment_status', 'total', 'fcm_token', 'items', 'vendor', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_vendor(self, obj):
+        if obj.user:
+            vendor_data = {
+                'id': obj.user.id,
+                'name': obj.user.name,
+                'phone': obj.user.phone,
+                'logo_url': None
+            }
+            if obj.user.logo:
+                request = self.context.get('request')
+                if request:
+                    vendor_data['logo_url'] = request.build_absolute_uri(obj.user.logo.url)
+                else:
+                    vendor_data['logo_url'] = obj.user.logo.url
+            return vendor_data
+        return None
+
+
+class TransactionHistorySerializer(serializers.ModelSerializer):
+    order_id = serializers.IntegerField(source='order.id', read_only=True)
+    user_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TransactionHistory
+        fields = ['id', 'order', 'order_id', 'user', 'user_info', 'amount', 'status', 'remarks', 'utr', 'vpa', 'payer_name', 'bank_id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_user_info(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_superuser and obj.user:
+            if obj.user.logo:
+                if request:
+                    return {
+                        'id': obj.user.id,
+                        'name': obj.user.name,
+                        'phone': obj.user.phone,
+                        'logo_url': request.build_absolute_uri(obj.user.logo.url)
+                    }
+                else:
+                    return {
+                        'id': obj.user.id,
+                        'name': obj.user.name,
+                        'phone': obj.user.phone,
+                        'logo_url': obj.user.logo.url
+                    }
+            return {
+                'id': obj.user.id,
+                'name': obj.user.name,
+                'phone': obj.user.phone,
+                'logo_url': None
+            }
+        return None
+
+
+class SuperSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SuperSetting
+        fields = ['id', 'expire_duration_month', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']

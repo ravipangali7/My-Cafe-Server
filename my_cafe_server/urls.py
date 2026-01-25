@@ -15,8 +15,119 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
+
+from core.views import (
+    # Auth views
+    login, register, logout, get_user, update_user, get_fcm_tokens, save_fcm_token,
+    # Dashboard
+    dashboard_stats,
+    # Vendor views
+    vendor_list, vendor_create, vendor_detail, vendor_edit, vendor_delete,
+    # Product views
+    product_list, product_create, product_detail, product_edit, product_delete,
+    # Category views
+    category_list, category_create, category_detail, category_edit, category_delete,
+    # Unit views
+    unit_list, unit_create, unit_detail, unit_edit, unit_delete,
+    # Order views
+    order_list, order_create, order_detail, order_edit, order_delete,
+    # Transaction views
+    transaction_list, transaction_detail,
+    # Settings views
+    get_settings, update_settings, users_stats,
+    # Stats views
+    product_stats, order_stats, category_stats, transaction_stats, unit_stats, vendor_stats,
+    # Report views
+    cafe_report, order_report, product_report, finance_report,
+    # Menu views
+    menu_by_vendor_phone,
+)
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    
+    # Auth endpoints
+    path('api/auth/login/', login, name='login'),
+    # Register endpoint removed - registration now handled through vendor management
+    path('api/auth/logout/', logout, name='logout'),
+    path('api/auth/user/', get_user, name='get_user'),
+    path('api/auth/user/update/', update_user, name='update_user'),
+    path('api/auth/user/fcm-tokens/', get_fcm_tokens, name='get_fcm_tokens'),
+    path('api/auth/user/fcm-token/', save_fcm_token, name='save_fcm_token'),
+    
+    # Dashboard endpoints
+    path('api/dashboard/stats', dashboard_stats, name='dashboard_stats'),  # No trailing slash to avoid redirect
+    path('api/dashboard/stats/', dashboard_stats, name='dashboard_stats_slash'),
+    path('api/dashboard/users-stats/', users_stats, name='users_stats'),
+    
+    # Vendor endpoints
+    path('api/vendors/', vendor_list, name='vendor_list'),
+    path('api/vendors/create/', vendor_create, name='vendor_create'),
+    path('api/vendors/<int:id>/', vendor_detail, name='vendor_detail'),
+    path('api/vendors/<int:id>/edit/', vendor_edit, name='vendor_edit'),
+    path('api/vendors/<int:id>/delete/', vendor_delete, name='vendor_delete'),
+    
+    # Stats endpoints
+    path('api/stats/products/', product_stats, name='product_stats'),
+    path('api/stats/orders/', order_stats, name='order_stats'),
+    path('api/stats/categories/', category_stats, name='category_stats'),
+    path('api/stats/transactions/', transaction_stats, name='transaction_stats'),
+    path('api/stats/units/', unit_stats, name='unit_stats'),
+    path('api/stats/vendors/', vendor_stats, name='vendor_stats'),
+    
+    # Report endpoints
+    path('api/reports/cafe', cafe_report, name='cafe_report'),  # No trailing slash to avoid redirect
+    path('api/reports/cafe/', cafe_report, name='cafe_report_slash'),
+    path('api/reports/orders/', order_report, name='order_report'),
+    path('api/reports/products/', product_report, name='product_report'),
+    path('api/reports/finance/', finance_report, name='finance_report'),
+    
+    # Product endpoints
+    path('api/products/', product_list, name='product_list'),
+    path('api/products/create/', product_create, name='product_create'),
+    path('api/products/<int:id>/', product_detail, name='product_detail'),
+    path('api/products/<int:id>/edit/', product_edit, name='product_edit'),
+    path('api/products/<int:id>/delete/', product_delete, name='product_delete'),
+    
+    # Category endpoints
+    path('api/categories/', category_list, name='category_list'),
+    path('api/categories/create/', category_create, name='category_create'),
+    path('api/categories/<int:id>/', category_detail, name='category_detail'),
+    path('api/categories/<int:id>/edit/', category_edit, name='category_edit'),
+    path('api/categories/<int:id>/delete/', category_delete, name='category_delete'),
+    
+    # Unit endpoints
+    path('api/units/', unit_list, name='unit_list'),
+    path('api/units/create/', unit_create, name='unit_create'),
+    path('api/units/<int:id>/', unit_detail, name='unit_detail'),
+    path('api/units/<int:id>/edit/', unit_edit, name='unit_edit'),
+    path('api/units/<int:id>/delete/', unit_delete, name='unit_delete'),
+    
+    # Order endpoints
+    path('api/orders/', order_list, name='order_list'),
+    path('api/orders/create/', order_create, name='order_create'),
+    path('api/orders/<int:id>/', order_detail, name='order_detail'),
+    path('api/orders/<int:id>/edit/', order_edit, name='order_edit'),
+    path('api/orders/<int:id>/delete/', order_delete, name='order_delete'),
+    
+    # Transaction endpoints
+    path('api/transactions/', transaction_list, name='transaction_list'),
+    path('api/transactions/<int:id>/', transaction_detail, name='transaction_detail'),
+    
+    # Settings endpoints
+    path('api/settings/', get_settings, name='get_settings'),
+    path('api/settings/update/', update_settings, name='update_settings'),
+    
+    # Menu endpoints (public)
+    path('api/menu/<str:vendor_phone>/', menu_by_vendor_phone, name='menu_by_vendor_phone'),
+    
 ]
+
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+
+urlpatterns.append(
+    path('', admin.site.urls),
+)
