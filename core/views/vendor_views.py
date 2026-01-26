@@ -281,7 +281,12 @@ def vendor_edit(request, id):
         # Only superusers can change is_superuser and password
         if request.user.is_superuser:
             if 'is_superuser' in data:
-                vendor.is_superuser = data.get('is_superuser', False)
+                is_superuser_value = data.get('is_superuser', False)
+                # Convert string "true"/"false" to boolean
+                if isinstance(is_superuser_value, str):
+                    vendor.is_superuser = is_superuser_value.lower() in ('true', '1', 'yes')
+                else:
+                    vendor.is_superuser = bool(is_superuser_value) if is_superuser_value is not None else False
             if 'password' in data and data.get('password'):
                 vendor.set_password(data.get('password'))
         
