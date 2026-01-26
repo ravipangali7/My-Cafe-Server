@@ -255,6 +255,7 @@ def order_edit(request, id):
         fcm_token = request.POST.get('fcm_token')
         items_data = request.POST.get('items')
         total = request.POST.get('total')
+        reject_reason = request.POST.get('reject_reason')
         
         # Track old status to detect changes
         old_status = order.status
@@ -273,6 +274,8 @@ def order_edit(request, id):
             order.fcm_token = fcm_token
         if total:
             order.total = Decimal(str(total))
+        if reject_reason is not None:
+            order.reject_reason = reject_reason
         
         order.save()
         
@@ -289,9 +292,9 @@ def order_edit(request, id):
                         'title': 'Order Accepted',
                         'body': f'Your Order #{order.id} has been accepted and is being prepared'
                     },
-                    'processing': {
-                        'title': 'Order Processing',
-                        'body': f'Your Order #{order.id} is currently being prepared'
+                    'rejected': {
+                        'title': 'Order Rejected',
+                        'body': f'Your Order #{order.id} has been rejected' + (f': {order.reject_reason}' if order.reject_reason else '')
                     },
                     'completed': {
                         'title': 'Order Completed',

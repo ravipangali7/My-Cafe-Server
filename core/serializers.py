@@ -182,7 +182,7 @@ class OrderSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Order
-        fields = ['id', 'name', 'phone', 'table_no', 'status', 'payment_status', 'total', 'fcm_token', 'items', 'vendor', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'phone', 'table_no', 'status', 'payment_status', 'total', 'fcm_token', 'reject_reason', 'items', 'vendor', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_vendor(self, obj):
