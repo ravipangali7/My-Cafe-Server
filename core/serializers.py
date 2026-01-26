@@ -1,16 +1,22 @@
 from rest_framework import serializers
 from .models import (
     User, Unit, Category, Product, ProductVariant,
-    Order, OrderItem, TransactionHistory, SuperSetting
+    Order, OrderItem, TransactionHistory, SuperSetting, QRStandOrder
 )
 
 
 class UserSerializer(serializers.ModelSerializer):
     logo_url = serializers.SerializerMethodField()
+    kyc_document_url = serializers.SerializerMethodField()
     
     class Meta:
         model = User
-        fields = ['id', 'name', 'phone', 'logo_url', 'expire_date', 'is_active', 'is_superuser', 'created_at', 'updated_at']
+        fields = [
+            'id', 'name', 'phone', 'logo_url', 'expire_date', 'is_active', 'is_superuser',
+            'kyc_status', 'kyc_reject_reason', 'kyc_document_type', 'kyc_document_url',
+            'subscription_start_date', 'subscription_end_date',
+            'created_at', 'updated_at'
+        ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_logo_url(self, obj):
@@ -19,6 +25,14 @@ class UserSerializer(serializers.ModelSerializer):
             if request:
                 return request.build_absolute_uri(obj.logo.url)
             return obj.logo.url
+        return None
+    
+    def get_kyc_document_url(self, obj):
+        if obj.kyc_document_file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.kyc_document_file.url)
+            return obj.kyc_document_file.url
         return None
 
 
@@ -242,5 +256,59 @@ class TransactionHistorySerializer(serializers.ModelSerializer):
 class SuperSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = SuperSetting
-        fields = ['id', 'expire_duration_month', 'created_at', 'updated_at']
+        fields = [
+            'id', 'expire_duration_month', 'per_qr_stand_price', 
+            'subscription_fee_per_month', 'created_at', 'updated_at'
+        ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class KYCSerializer(serializers.ModelSerializer):
+    """Serializer for KYC document submission"""
+    kyc_document_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'name', 'phone', 'kyc_status', 'kyc_reject_reason',
+            'kyc_document_type', 'kyc_document_file', 'kyc_document_url',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'kyc_status', 'kyc_reject_reason', 'created_at', 'updated_at']
+    
+    def get_kyc_document_url(self, obj):
+        if obj.kyc_document_file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.kyc_document_file.url)
+            return obj.kyc_document_file.url
+        return None
+
+
+class QRStandOrderSerializer(serializers.ModelSerializer):
+    vendor_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QRStandOrder
+        fields = [
+            'id', 'vendor', 'vendor_info', 'quantity', 'total_price',
+            'order_status', 'payment_status', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_vendor_info(self, obj):
+        if obj.vendor:
+            vendor_data = {
+                'id': obj.vendor.id,
+                'name': obj.vendor.name,
+                'phone': obj.vendor.phone,
+                'logo_url': None
+            }
+            if obj.vendor.logo:
+                request = self.context.get('request')
+                if request:
+                    vendor_data['logo_url'] = request.build_absolute_uri(obj.vendor.logo.url)
+                else:
+                    vendor_data['logo_url'] = obj.vendor.logo.url
+            return vendor_data
+        return None

@@ -9,6 +9,26 @@ class User(AbstractUser):
     first_name = None
     last_name = None
     
+    # KYC Status Choices
+    KYC_PENDING = "pending"
+    KYC_APPROVED = "approved"
+    KYC_REJECTED = "rejected"
+    
+    KYC_STATUS_CHOICES = (
+        (KYC_PENDING, "Pending"),
+        (KYC_APPROVED, "Approved"),
+        (KYC_REJECTED, "Rejected"),
+    )
+    
+    # KYC Document Type Choices
+    AADHAAR = "aadhaar"
+    FOOD_LICENSE = "food_license"
+    
+    KYC_DOCUMENT_TYPE_CHOICES = (
+        (AADHAAR, "Aadhaar Card"),
+        (FOOD_LICENSE, "Food License"),
+    )
+    
     id = models.BigAutoField(primary_key=True)
     name = models.CharField(max_length=100)
     phone = models.CharField(max_length=15, unique=True)
@@ -16,6 +36,30 @@ class User(AbstractUser):
     expire_date = models.DateField(null=True, blank=True)
     token = models.CharField(max_length=500, null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    
+    # KYC Fields
+    kyc_status = models.CharField(
+        max_length=20, 
+        choices=KYC_STATUS_CHOICES, 
+        default=KYC_PENDING
+    )
+    kyc_reject_reason = models.TextField(blank=True, null=True)
+    kyc_document_type = models.CharField(
+        max_length=20, 
+        choices=KYC_DOCUMENT_TYPE_CHOICES, 
+        blank=True, 
+        null=True
+    )
+    kyc_document_file = models.FileField(
+        upload_to="kyc_documents/", 
+        blank=True, 
+        null=True
+    )
+    
+    # Subscription Fields
+    subscription_start_date = models.DateField(null=True, blank=True)
+    subscription_end_date = models.DateField(null=True, blank=True)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -204,7 +248,7 @@ class TransactionHistory(models.Model):
     )
 
     id = models.BigAutoField(primary_key=True)
-    order = models.ForeignKey(Order, related_name="transactions", on_delete=models.CASCADE)
+    order = models.ForeignKey(Order, related_name="transactions", on_delete=models.CASCADE, null=True, blank=True)
     user = models.ForeignKey(User, related_name="transactions", on_delete=models.DO_NOTHING)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES)
@@ -223,5 +267,45 @@ class TransactionHistory(models.Model):
 class SuperSetting(models.Model):
     id = models.BigAutoField(primary_key=True)
     expire_duration_month = models.PositiveIntegerField()
+    per_qr_stand_price = models.PositiveIntegerField(default=0)
+    subscription_fee_per_month = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+# --------------------
+# QR Stand Order
+# --------------------
+class QRStandOrder(models.Model):
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("accepted", "Accepted"),
+        ("saved", "Saved"),
+        ("delivered", "Delivered"),
+    )
+
+    PAYMENT_STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("paid", "Paid"),
+        ("failed", "Failed"),
+    )
+
+    id = models.BigAutoField(primary_key=True)
+    vendor = models.ForeignKey(User, related_name="qr_stand_orders", on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField()
+    total_price = models.DecimalField(max_digits=12, decimal_places=2)
+    order_status = models.CharField(
+        max_length=20, 
+        choices=STATUS_CHOICES, 
+        default="pending"
+    )
+    payment_status = models.CharField(
+        max_length=20, 
+        choices=PAYMENT_STATUS_CHOICES, 
+        default="pending"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"QR Stand Order #{self.id} - {self.vendor.name}"

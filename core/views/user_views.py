@@ -39,15 +39,44 @@ def login(request):
         
         # Create or get session
         from django.contrib.auth import login as django_login
+        from datetime import date
         django_login(request, user)
         
         # Explicitly save the session to ensure cookie is set
         request.session.save()
         
+        # Check KYC status
+        kyc_status = user.kyc_status
+        kyc_approved = kyc_status == 'approved'
+        
+        # Check subscription status
+        subscription_state = 'inactive'
+        subscription_message = None
+        today = date.today()
+        
+        if not user.subscription_end_date:
+            subscription_state = 'no_subscription'
+            subscription_message = 'No subscription found'
+        elif user.subscription_end_date < today:
+            subscription_state = 'expired'
+            subscription_message = 'Subscription has expired'
+        elif not user.is_active and user.subscription_end_date:
+            subscription_state = 'inactive_with_date'
+            subscription_message = 'Contact administrator'
+        elif user.is_active and user.subscription_end_date and user.subscription_end_date >= today:
+            subscription_state = 'active'
+            subscription_message = 'Subscription is active'
+        
         serializer = UserSerializer(user, context={'request': request})
         return Response({
             'user': serializer.data,
-            'message': 'Login successful'
+            'message': 'Login successful',
+            'kyc_status': kyc_status,
+            'kyc_approved': kyc_approved,
+            'subscription_state': subscription_state,
+            'subscription_message': subscription_message,
+            'redirect_to_kyc': not kyc_approved,
+            'redirect_to_subscription': kyc_approved and subscription_state in ['no_subscription', 'expired']
         }, status=status.HTTP_200_OK)
         
     except Exception as e:

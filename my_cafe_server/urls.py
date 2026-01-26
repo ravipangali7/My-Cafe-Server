@@ -46,6 +46,12 @@ from core.views import (
     menu_by_vendor_phone,
 )
 
+# Import new views
+from core.views.kyc_views import kyc_status, kyc_submit, kyc_approve, kyc_reject, kyc_pending
+from core.views.subscription_views import subscription_status, subscription_plans, subscription_subscribe, subscription_payment_success
+from core.views.qr_stand_views import qr_stand_order_list, qr_stand_order_create, qr_stand_order_detail, qr_stand_order_update, qr_stand_order_delete
+from core.views.qr_views import qr_generate, qr_download_pdf
+
 urlpatterns = [
     
     # Auth endpoints
@@ -119,6 +125,30 @@ urlpatterns = [
     # Settings endpoints
     path('api/settings/', get_settings, name='get_settings'),
     path('api/settings/update/', update_settings, name='update_settings'),
+    
+    # KYC endpoints
+    path('api/kyc/status/', kyc_status, name='kyc_status'),
+    path('api/kyc/submit/', kyc_submit, name='kyc_submit'),
+    path('api/kyc/approve/<int:id>/', kyc_approve, name='kyc_approve'),
+    path('api/kyc/reject/<int:id>/', kyc_reject, name='kyc_reject'),
+    path('api/kyc/pending/', kyc_pending, name='kyc_pending'),
+    
+    # Subscription endpoints
+    path('api/subscription/status/', subscription_status, name='subscription_status'),
+    path('api/subscription/plans/', subscription_plans, name='subscription_plans'),
+    path('api/subscription/subscribe/', subscription_subscribe, name='subscription_subscribe'),
+    path('api/subscription/payment-success/', subscription_payment_success, name='subscription_payment_success'),
+    
+    # QR Stand Order endpoints
+    path('api/qr-stands/orders/', qr_stand_order_list, name='qr_stand_order_list'),
+    path('api/qr-stands/orders/create/', qr_stand_order_create, name='qr_stand_order_create'),
+    path('api/qr-stands/orders/<int:id>/', qr_stand_order_detail, name='qr_stand_order_detail'),
+    path('api/qr-stands/orders/<int:id>/update/', qr_stand_order_update, name='qr_stand_order_update'),
+    path('api/qr-stands/orders/<int:id>/delete/', qr_stand_order_delete, name='qr_stand_order_delete'),
+    
+    # QR Generation endpoints
+    path('api/qr/generate/<int:vendor_id>/', qr_generate, name='qr_generate'),
+    path('api/qr/download-pdf/<int:vendor_id>/', qr_download_pdf, name='qr_download_pdf'),
     
     # Menu endpoints (public)
     path('api/menu/<str:vendor_phone>/', menu_by_vendor_phone, name='menu_by_vendor_phone'),

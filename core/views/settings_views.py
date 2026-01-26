@@ -158,21 +158,68 @@ def update_settings(request):
             status=status.HTTP_401_UNAUTHORIZED
         )
     
+    if not request.user.is_superuser:
+        return Response(
+            {'error': 'Only super admins can update settings'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
     try:
         from rest_framework import status
         import json
         
         data = json.loads(request.body) if request.content_type == 'application/json' else request.POST
         expire_duration_month = data.get('expire_duration_month')
-        
-        if expire_duration_month is None:
-            return Response(
-                {'error': 'expire_duration_month is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        per_qr_stand_price = data.get('per_qr_stand_price')
+        subscription_fee_per_month = data.get('subscription_fee_per_month')
         
         setting, created = SuperSetting.objects.get_or_create(id=1)
-        setting.expire_duration_month = int(expire_duration_month)
+        
+        # Update expire_duration_month if provided
+        if expire_duration_month is not None:
+            try:
+                setting.expire_duration_month = int(expire_duration_month)
+                if setting.expire_duration_month < 1:
+                    return Response(
+                        {'error': 'expire_duration_month must be a positive integer'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except (ValueError, TypeError):
+                return Response(
+                    {'error': 'expire_duration_month must be a valid integer'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Update per_qr_stand_price if provided (integer only)
+        if per_qr_stand_price is not None:
+            try:
+                setting.per_qr_stand_price = int(per_qr_stand_price)
+                if setting.per_qr_stand_price < 0:
+                    return Response(
+                        {'error': 'per_qr_stand_price must be a non-negative integer'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except (ValueError, TypeError):
+                return Response(
+                    {'error': 'per_qr_stand_price must be a valid integer'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Update subscription_fee_per_month if provided (integer only)
+        if subscription_fee_per_month is not None:
+            try:
+                setting.subscription_fee_per_month = int(subscription_fee_per_month)
+                if setting.subscription_fee_per_month < 0:
+                    return Response(
+                        {'error': 'subscription_fee_per_month must be a non-negative integer'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except (ValueError, TypeError):
+                return Response(
+                    {'error': 'subscription_fee_per_month must be a valid integer'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
         setting.save()
         
         serializer = SuperSettingSerializer(setting, context={'request': request})
