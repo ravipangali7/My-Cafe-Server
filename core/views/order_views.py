@@ -327,35 +327,105 @@ def order_edit(request, id):
         # Update items if provided
         if items_data:
             try:
-                # Delete existing items
-                OrderItem.objects.filter(order=order).delete()
-                
-                # Create new items
+                # Parse incoming items data
                 items_list = json.loads(items_data) if isinstance(items_data, str) else items_data
-                for item_data in items_list:
-                    product_id = item_data.get('product_id')
-                    product_variant_id = item_data.get('product_variant_id')
-                    quantity = item_data.get('quantity', 1)
-                    price = item_data.get('price', '0')
+                
+                # Handle empty items_data - delete all items (same as current behavior)
+                if not items_list:
+                    OrderItem.objects.filter(order=order).delete()
+                else:
+                    # Fetch existing order items from database
+                    existing_items = list(OrderItem.objects.filter(order=order))
                     
-                    if product_id and product_variant_id:
+                    # Build lookup dictionary for existing items keyed by (product_id, product_variant_id)
+                    # Handle multiple items with same (product_id, product_variant_id) by matching first, tracking others for deletion
+                    existing_dict = {}
+                    items_to_delete = []
+                    
+                    for item in existing_items:
+                        key = (item.product_id, item.product_variant_id)
+                        if key not in existing_dict:
+                            existing_dict[key] = item
+                        else:
+                            # Duplicate key - mark for deletion
+                            items_to_delete.append(item)
+                    
+                    # Build lookup dictionary for new items from parsed items_data
+                    new_items_dict = {}
+                    for item_data in items_list:
+                        product_id = item_data.get('product_id')
+                        product_variant_id = item_data.get('product_variant_id')
+                        
+                        if product_id and product_variant_id:
+                            try:
+                                # Convert to integers for comparison
+                                product_id = int(product_id)
+                                product_variant_id = int(product_variant_id)
+                                key = (product_id, product_variant_id)
+                                
+                                # Store item data with key
+                                if key not in new_items_dict:
+                                    new_items_dict[key] = item_data
+                            except (ValueError, TypeError):
+                                # Skip invalid product/variant IDs
+                                continue
+                    
+                    # Process deletions: Find items in DB not present in new list
+                    deleted_item_ids = set()
+                    for key, existing_item in existing_dict.items():
+                        if key not in new_items_dict:
+                            items_to_delete.append(existing_item)
+                            deleted_item_ids.add(existing_item.id)
+                    
+                    # Also add duplicate items to deleted set
+                    for item in items_to_delete:
+                        deleted_item_ids.add(item.id)
+                    
+                    # Delete items not in new list (including duplicates)
+                    if items_to_delete:
+                        OrderItem.objects.filter(id__in=[item.id for item in items_to_delete]).delete()
+                    
+                    # Process updates and creations
+                    for key, item_data in new_items_dict.items():
+                        product_id, product_variant_id = key
+                        quantity = item_data.get('quantity', 1)
+                        price = item_data.get('price', '0')
+                        
                         try:
-                            product = Product.objects.get(id=product_id, user=request.user)
+                            # Get product and variant (use order.user for consistency)
+                            product = Product.objects.get(id=product_id, user=order.user)
                             product_variant = ProductVariant.objects.get(id=product_variant_id, product=product)
                             
+                            # Calculate item total
                             item_total = Decimal(str(price)) * int(quantity)
+                            new_price = Decimal(str(price))
+                            new_quantity = int(quantity)
                             
-                            OrderItem.objects.create(
-                                order=order,
-                                product=product,
-                                product_variant=product_variant,
-                                price=Decimal(str(price)),
-                                quantity=int(quantity),
-                                total=item_total
-                            )
+                            # Check if item exists in DB and wasn't deleted
+                            if key in existing_dict and existing_dict[key].id not in deleted_item_ids:
+                                # Process updates: Update if quantity/price changed
+                                existing_item = existing_dict[key]
+                                if (existing_item.quantity != new_quantity or 
+                                    existing_item.price != new_price):
+                                    existing_item.quantity = new_quantity
+                                    existing_item.price = new_price
+                                    existing_item.total = item_total
+                                    existing_item.save()
+                            else:
+                                # Process creations: Create items that don't exist in DB or were deleted
+                                OrderItem.objects.create(
+                                    order=order,
+                                    product=product,
+                                    product_variant=product_variant,
+                                    price=new_price,
+                                    quantity=new_quantity,
+                                    total=item_total
+                                )
                         except (Product.DoesNotExist, ProductVariant.DoesNotExist):
+                            # Skip items with invalid product/variant (same as current behavior)
                             continue
             except (json.JSONDecodeError, ValueError):
+                # Skip item updates on invalid JSON (same as current behavior)
                 pass
         
         serializer = OrderSerializer(order, context={'request': request})
