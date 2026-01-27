@@ -309,3 +309,75 @@ def save_fcm_token(request):
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['POST'])
+def save_fcm_token_by_phone(request):
+    """
+    Save FCM token by phone number (no authentication required)
+    Used by Flutter app to register device tokens
+    """
+    try:
+        # Handle both JSON and form-data
+        if request.content_type and 'application/json' in request.content_type:
+            data = json.loads(request.body)
+        else:
+            data = request.POST
+        
+        phone = data.get('phone')
+        fcm_token = data.get('fcm_token')
+        
+        # Validate required fields
+        if not phone:
+            return Response(
+                {'error': 'Phone number is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not fcm_token:
+            return Response(
+                {'error': 'FCM token is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find user by phone number
+        try:
+            user = User.objects.get(phone=phone)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User with this phone number does not exist'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check if the same token already exists for this user
+        existing_token = FcmToken.objects.filter(
+            user=user,
+            token=fcm_token
+        ).first()
+        
+        if existing_token:
+            # Token already exists, skip creating duplicate
+            return Response({
+                'message': 'FCM token already exists',
+                'token_id': existing_token.id,
+                'existing': True,
+                'user_phone': user.phone
+            }, status=status.HTTP_200_OK)
+        
+        # Create new FCM token entry (allows multiple devices per user)
+        fcm_token_obj = FcmToken.objects.create(
+            user=user,
+            token=fcm_token
+        )
+        
+        return Response({
+            'message': 'FCM token saved successfully',
+            'token_id': fcm_token_obj.id,
+            'user_phone': user.phone
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
