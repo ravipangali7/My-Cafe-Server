@@ -2,8 +2,6 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import authenticate
-from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
 import json
 from ..models import User, FcmToken
 from ..serializers import UserSerializer
@@ -313,45 +311,12 @@ def save_fcm_token(request):
         )
 
 
-@csrf_exempt
+@api_view(['POST'])
 def save_fcm_token_by_phone(request):
     """
     Save FCM token by phone number (no authentication required)
     Used by Flutter app to register device tokens
     """
-    # Explicitly disable CSRF checks (in addition to @csrf_exempt decorator)
-    request._dont_enforce_csrf_checks = True
-    
-    # #region agent log
-    import os
-    log_path = r'c:\CODE\My_Cafe\.cursor\debug.log'
-    try:
-        with open(log_path, 'a', encoding='utf-8') as f:
-            import json as json_lib
-            import time
-            log_entry = {
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "A",
-                "location": "user_views.py:317",
-                "message": "View function called",
-                "data": {
-                    "method": request.method,
-                    "path": request.path,
-                    "has_dont_enforce_flag": hasattr(request, '_dont_enforce_csrf_checks'),
-                    "dont_enforce_value": getattr(request, '_dont_enforce_csrf_checks', None),
-                    "csrf_exempt_applied": True
-                },
-                "timestamp": int(time.time() * 1000)
-            }
-            f.write(json_lib.dumps(log_entry) + '\n')
-    except Exception:
-        pass
-    # #endregion
-    
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Method not allowed'}, status=405)
-    
     try:
         # Handle both JSON and form-data
         if request.content_type and 'application/json' in request.content_type:
@@ -364,24 +329,24 @@ def save_fcm_token_by_phone(request):
         
         # Validate required fields
         if not phone:
-            return JsonResponse(
+            return Response(
                 {'error': 'Phone number is required'},
-                status=400
+                status=status.HTTP_400_BAD_REQUEST
             )
         
         if not fcm_token:
-            return JsonResponse(
+            return Response(
                 {'error': 'FCM token is required'},
-                status=400
+                status=status.HTTP_400_BAD_REQUEST
             )
         
         # Find user by phone number
         try:
             user = User.objects.get(phone=phone)
         except User.DoesNotExist:
-            return JsonResponse(
+            return Response(
                 {'error': 'User with this phone number does not exist'},
-                status=404
+                status=status.HTTP_404_NOT_FOUND
             )
         
         # Check if the same token already exists for this user
@@ -392,12 +357,12 @@ def save_fcm_token_by_phone(request):
         
         if existing_token:
             # Token already exists, skip creating duplicate
-            return JsonResponse({
+            return Response({
                 'message': 'FCM token already exists',
                 'token_id': existing_token.id,
                 'existing': True,
                 'user_phone': user.phone
-            }, status=200)
+            }, status=status.HTTP_200_OK)
         
         # Create new FCM token entry (allows multiple devices per user)
         fcm_token_obj = FcmToken.objects.create(
@@ -405,39 +370,14 @@ def save_fcm_token_by_phone(request):
             token=fcm_token
         )
         
-        return JsonResponse({
+        return Response({
             'message': 'FCM token saved successfully',
             'token_id': fcm_token_obj.id,
             'user_phone': user.phone
-        }, status=201)
+        }, status=status.HTTP_201_CREATED)
         
     except Exception as e:
-        # #region agent log
-        try:
-            import os
-            log_path = r'c:\CODE\My_Cafe\.cursor\debug.log'
-            with open(log_path, 'a', encoding='utf-8') as f:
-                import json as json_lib
-                import time
-                import traceback
-                log_entry = {
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "F",
-                    "location": "user_views.py:384",
-                    "message": "Exception in save_fcm_token_by_phone",
-                    "data": {
-                        "error": str(e),
-                        "error_type": type(e).__name__,
-                        "traceback": traceback.format_exc()
-                    },
-                    "timestamp": int(time.time() * 1000)
-                }
-                f.write(json_lib.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion
-        return JsonResponse(
+        return Response(
             {'error': str(e)},
-            status=500
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

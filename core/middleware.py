@@ -6,81 +6,8 @@ class DisableCSRFForAPI(MiddlewareMixin):
     """Middleware to disable CSRF for all /api/ endpoints and ensure CORS headers"""
     
     def process_request(self, request):
-        # #region agent log
-        import os
-        log_path = r'c:\CODE\My_Cafe\.cursor\debug.log'
-        try:
-            with open(log_path, 'a', encoding='utf-8') as f:
-                import json as json_lib
-                import time
-                log_entry = {
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "C",
-                    "location": "middleware.py:8",
-                    "message": "DisableCSRFForAPI middleware process_request",
-                    "data": {
-                        "path": request.path,
-                        "starts_with_api": request.path.startswith('/api/'),
-                        "method": request.method,
-                        "full_path": request.get_full_path()
-                    },
-                    "timestamp": int(time.time() * 1000)
-                }
-                f.write(json_lib.dumps(log_entry) + '\n')
-                f.flush()  # Force write to disk
-        except Exception as e:
-            # Log the exception to see if there's a file permission issue
-            try:
-                with open(log_path, 'a', encoding='utf-8') as f:
-                    import json as json_lib
-                    import time
-                    log_entry = {
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "C",
-                        "location": "middleware.py:exception",
-                        "message": "Error in middleware logging",
-                        "data": {"error": str(e)},
-                        "timestamp": int(time.time() * 1000)
-                    }
-                    f.write(json_lib.dumps(log_entry) + '\n')
-                    f.flush()
-            except:
-                pass
-        # #endregion
-        
-        # Disable CSRF for ALL /api/ endpoints - set multiple flags to ensure it works
         if request.path.startswith('/api/'):
-            # Set the standard Django CSRF bypass flag
             setattr(request, '_dont_enforce_csrf_checks', True)
-            # Also set CSRF_COOKIE_USED to False to prevent cookie checks
-            setattr(request, 'csrf_processing_done', True)
-            # Force CSRF to be bypassed at multiple levels
-            request.META['CSRF_COOKIE_USED'] = False
-            # #region agent log
-            try:
-                with open(log_path, 'a', encoding='utf-8') as f:
-                    import json as json_lib
-                    import time
-                    log_entry = {
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "C",
-                        "location": "middleware.py:11",
-                        "message": "Set _dont_enforce_csrf_checks=True",
-                        "data": {
-                            "path": request.path,
-                            "flag_set": True,
-                            "dont_enforce_value": getattr(request, '_dont_enforce_csrf_checks', None)
-                        },
-                        "timestamp": int(time.time() * 1000)
-                    }
-                    f.write(json_lib.dumps(log_entry) + '\n')
-                    f.flush()
-            except Exception:
-                pass
-            # #endregion
         return None
     
     def _get_http_response(self, response):

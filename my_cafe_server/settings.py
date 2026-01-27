@@ -48,9 +48,8 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
-    'core.middleware.DisableCSRFForAPI',  # Disable CSRF for all /api/ endpoints - MUST be before CommonMiddleware
     'django.middleware.common.CommonMiddleware',
-    # CSRF middleware completely removed - not needed for API endpoints
+    'core.middleware.DisableCSRFForAPI',  # Disable CSRF for all /api/ endpoints
     # 'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -63,9 +62,6 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
-    ],
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer',
     ],
 }
 
