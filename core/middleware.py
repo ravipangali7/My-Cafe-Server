@@ -22,13 +22,32 @@ class DisableCSRFForAPI(MiddlewareMixin):
                     "data": {
                         "path": request.path,
                         "starts_with_api": request.path.startswith('/api/'),
-                        "method": request.method
+                        "method": request.method,
+                        "full_path": request.get_full_path()
                     },
                     "timestamp": int(time.time() * 1000)
                 }
                 f.write(json_lib.dumps(log_entry) + '\n')
-        except Exception:
-            pass
+                f.flush()  # Force write to disk
+        except Exception as e:
+            # Log the exception to see if there's a file permission issue
+            try:
+                with open(log_path, 'a', encoding='utf-8') as f:
+                    import json as json_lib
+                    import time
+                    log_entry = {
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "C",
+                        "location": "middleware.py:exception",
+                        "message": "Error in middleware logging",
+                        "data": {"error": str(e)},
+                        "timestamp": int(time.time() * 1000)
+                    }
+                    f.write(json_lib.dumps(log_entry) + '\n')
+                    f.flush()
+            except:
+                pass
         # #endregion
         
         # Disable CSRF for ALL /api/ endpoints - set multiple flags to ensure it works
@@ -37,9 +56,13 @@ class DisableCSRFForAPI(MiddlewareMixin):
             setattr(request, '_dont_enforce_csrf_checks', True)
             # Also set CSRF_COOKIE_USED to False to prevent cookie checks
             setattr(request, 'csrf_processing_done', True)
+            # Force CSRF to be bypassed at multiple levels
+            request.META['CSRF_COOKIE_USED'] = False
             # #region agent log
             try:
                 with open(log_path, 'a', encoding='utf-8') as f:
+                    import json as json_lib
+                    import time
                     log_entry = {
                         "sessionId": "debug-session",
                         "runId": "run1",
@@ -54,6 +77,7 @@ class DisableCSRFForAPI(MiddlewareMixin):
                         "timestamp": int(time.time() * 1000)
                     }
                     f.write(json_lib.dumps(log_entry) + '\n')
+                    f.flush()
             except Exception:
                 pass
             # #endregion
