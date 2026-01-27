@@ -2,6 +2,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import authenticate
+from django.views.decorators.csrf import csrf_exempt
 import json
 from ..models import User, FcmToken
 from ..serializers import UserSerializer
@@ -311,6 +312,7 @@ def save_fcm_token(request):
         )
 
 
+@csrf_exempt
 @api_view(['POST'])
 def save_fcm_token_by_phone(request):
     """
