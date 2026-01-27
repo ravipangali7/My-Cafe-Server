@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import authenticate
 from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
 import json
 from ..models import User, FcmToken
 from ..serializers import UserSerializer
@@ -313,12 +314,14 @@ def save_fcm_token(request):
 
 
 @csrf_exempt
-@api_view(['POST'])
 def save_fcm_token_by_phone(request):
     """
     Save FCM token by phone number (no authentication required)
     Used by Flutter app to register device tokens
     """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    
     try:
         # Handle both JSON and form-data
         if request.content_type and 'application/json' in request.content_type:
@@ -331,24 +334,24 @@ def save_fcm_token_by_phone(request):
         
         # Validate required fields
         if not phone:
-            return Response(
+            return JsonResponse(
                 {'error': 'Phone number is required'},
-                status=status.HTTP_400_BAD_REQUEST
+                status=400
             )
         
         if not fcm_token:
-            return Response(
+            return JsonResponse(
                 {'error': 'FCM token is required'},
-                status=status.HTTP_400_BAD_REQUEST
+                status=400
             )
         
         # Find user by phone number
         try:
             user = User.objects.get(phone=phone)
         except User.DoesNotExist:
-            return Response(
+            return JsonResponse(
                 {'error': 'User with this phone number does not exist'},
-                status=status.HTTP_404_NOT_FOUND
+                status=404
             )
         
         # Check if the same token already exists for this user
@@ -359,12 +362,12 @@ def save_fcm_token_by_phone(request):
         
         if existing_token:
             # Token already exists, skip creating duplicate
-            return Response({
+            return JsonResponse({
                 'message': 'FCM token already exists',
                 'token_id': existing_token.id,
                 'existing': True,
                 'user_phone': user.phone
-            }, status=status.HTTP_200_OK)
+            }, status=200)
         
         # Create new FCM token entry (allows multiple devices per user)
         fcm_token_obj = FcmToken.objects.create(
@@ -372,14 +375,14 @@ def save_fcm_token_by_phone(request):
             token=fcm_token
         )
         
-        return Response({
+        return JsonResponse({
             'message': 'FCM token saved successfully',
             'token_id': fcm_token_obj.id,
             'user_phone': user.phone
-        }, status=status.HTTP_201_CREATED)
+        }, status=201)
         
     except Exception as e:
-        return Response(
+        return JsonResponse(
             {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            status=500
         )
