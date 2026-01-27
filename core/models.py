@@ -309,3 +309,19 @@ class QRStandOrder(models.Model):
 
     def __str__(self):
         return f"QR Stand Order #{self.id} - {self.vendor.name}"
+
+
+# --------------------
+# Invoice
+# --------------------
+class Invoice(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    order = models.OneToOneField(Order, related_name='invoice', on_delete=models.CASCADE)
+    invoice_number = models.CharField(max_length=50, unique=True)
+    pdf_file = models.FileField(upload_to='invoices/', blank=True, null=True)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    generated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Invoice #{self.invoice_number} - Order #{self.order.id}"

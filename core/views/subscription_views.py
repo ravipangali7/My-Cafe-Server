@@ -4,8 +4,9 @@ from rest_framework import status
 import json
 from datetime import date, timedelta
 from django.utils import timezone
+from django.db.models import Q
 from ..models import User, SuperSetting, TransactionHistory
-from ..serializers import UserSerializer
+from ..serializers import UserSerializer, TransactionHistorySerializer
 
 
 @api_view(['GET'])
@@ -47,9 +48,17 @@ def subscription_status(request):
             subscription_state = 'active'
             message = 'Subscription is active'
         
+        # Calculate subscription type (monthly or yearly)
+        subscription_type = None
+        if user.subscription_start_date and user.subscription_end_date:
+            months_diff = (user.subscription_end_date.year - user.subscription_start_date.year) * 12 + \
+                         (user.subscription_end_date.month - user.subscription_start_date.month)
+            subscription_type = 'yearly' if months_diff >= 12 else 'monthly'
+        
         serializer = UserSerializer(user, context={'request': request})
         return Response({
             'subscription_state': subscription_state,
+            'subscription_type': subscription_type,
             'is_active': is_active,
             'subscription_start_date': user.subscription_start_date.isoformat() if user.subscription_start_date else None,
             'subscription_end_date': user.subscription_end_date.isoformat() if user.subscription_end_date else None,
@@ -169,6 +178,7 @@ def subscription_subscribe(request):
         # Update user subscription
         user.subscription_start_date = start_date
         user.subscription_end_date = new_end_date
+        user.expire_date = new_end_date  # Also update expire_date to match subscription_end_date
         user.is_active = True
         user.save()
         
@@ -261,6 +271,7 @@ def subscription_payment_success(request):
         # Update user
         user.subscription_start_date = start_date
         user.subscription_end_date = new_end_date
+        user.expire_date = new_end_date  # Also update expire_date to match subscription_end_date
         user.is_active = True
         user.save()
         
@@ -270,6 +281,110 @@ def subscription_payment_success(request):
             'subscription_start_date': start_date.isoformat(),
             'subscription_end_date': new_end_date.isoformat(),
             'user': serializer.data
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+def subscription_transactions(request):
+    """Get all subscription-related transactions for the current user"""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+    try:
+        # Get subscription-related transactions (where order is None and remarks contain 'Subscription')
+        transactions = TransactionHistory.objects.filter(
+            user=request.user,
+            order__isnull=True
+        ).filter(
+            Q(remarks__icontains='Subscription') | Q(remarks__icontains='subscription')
+        ).order_by('-created_at')
+        
+        serializer = TransactionHistorySerializer(transactions, many=True, context={'request': request})
+        
+        return Response({
+            'transactions': serializer.data
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+def subscription_history(request):
+    """Get subscription timeline with payment history"""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+    try:
+        user = request.user
+        today = date.today()
+        
+        # Get subscription transactions
+        transactions = TransactionHistory.objects.filter(
+            user=user,
+            order__isnull=True
+        ).filter(
+            Q(remarks__icontains='Subscription') | Q(remarks__icontains='subscription')
+        ).order_by('created_at')
+        
+        # Build history timeline
+        history = []
+        
+        if user.subscription_start_date:
+            # Calculate total amount paid
+            total_amount = sum(float(t.amount) for t in transactions if t.status == 'success')
+            
+            # Determine subscription type
+            if user.subscription_end_date and user.subscription_start_date:
+                months_diff = (user.subscription_end_date.year - user.subscription_start_date.year) * 12 + \
+                             (user.subscription_end_date.month - user.subscription_start_date.month)
+                subscription_type = 'yearly' if months_diff >= 12 else 'monthly'
+            else:
+                subscription_type = None
+            
+            history.append({
+                'date': user.subscription_start_date.isoformat(),
+                'event': 'subscription_started',
+                'subscription_type': subscription_type,
+                'start_date': user.subscription_start_date.isoformat(),
+                'end_date': user.subscription_end_date.isoformat() if user.subscription_end_date else None,
+                'amount_paid': str(total_amount),
+                'status': 'active' if (user.subscription_end_date and user.subscription_end_date >= today) else 'expired'
+            })
+            
+            # Add transaction events
+            for transaction in transactions:
+                history.append({
+                    'date': transaction.created_at.date().isoformat(),
+                    'event': 'payment',
+                    'amount': str(transaction.amount),
+                    'status': transaction.status,
+                    'utr': transaction.utr,
+                    'remarks': transaction.remarks
+                })
+        
+        return Response({
+            'history': history,
+            'current_subscription': {
+                'start_date': user.subscription_start_date.isoformat() if user.subscription_start_date else None,
+                'end_date': user.subscription_end_date.isoformat() if user.subscription_end_date else None,
+                'is_active': user.subscription_end_date and user.subscription_end_date >= today if user.subscription_end_date else False
+            }
         }, status=status.HTTP_200_OK)
         
     except Exception as e:

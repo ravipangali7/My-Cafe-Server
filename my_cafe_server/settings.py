@@ -87,7 +87,9 @@ CSRF_TRUSTED_ORIGINS = [
 # Check if we're in production (HTTPS)
 USE_HTTPS = not DEBUG  # Set to True in production
 
-SESSION_COOKIE_SAMESITE = 'None' if USE_HTTPS else 'Lax'  # None for cross-site with HTTPS
+# For local development with Vite proxy, requests appear same-origin so we can use 'Lax'
+# For production (HTTPS), use 'None' with Secure=True for cross-site cookies
+SESSION_COOKIE_SAMESITE = 'Lax' if not USE_HTTPS else 'None'  # Lax for same-origin (proxy), None for cross-site (HTTPS)
 SESSION_COOKIE_SECURE = USE_HTTPS  # True for HTTPS, False for HTTP
 SESSION_COOKIE_HTTPONLY = True  # Prevent JavaScript access (security)
 SESSION_COOKIE_AGE = 86400  # 24 hours

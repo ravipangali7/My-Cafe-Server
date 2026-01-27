@@ -9,7 +9,8 @@ from .models import (
     Order,
     OrderItem,
     TransactionHistory,
-    SuperSetting
+    SuperSetting,
+    Invoice
 )
 
 
@@ -59,3 +60,4 @@ admin.site.register(Unit)
 admin.site.register(Category)
 admin.site.register(TransactionHistory)
 admin.site.register(SuperSetting)
+admin.site.register(Invoice)

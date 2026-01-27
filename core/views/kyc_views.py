@@ -17,11 +17,17 @@ def kyc_status(request):
         )
     
     try:
-        serializer = UserSerializer(request.user, context={'request': request})
+        user = request.user
+        serializer = UserSerializer(user, context={'request': request})
+        
+        # Check if document is submitted (has document type and file)
+        has_document_submitted = bool(user.kyc_document_type and user.kyc_document_file)
+        
         return Response({
-            'kyc_status': request.user.kyc_status,
-            'kyc_reject_reason': request.user.kyc_reject_reason,
-            'kyc_document_type': request.user.kyc_document_type,
+            'kyc_status': user.kyc_status,
+            'kyc_reject_reason': user.kyc_reject_reason,
+            'kyc_document_type': user.kyc_document_type,
+            'has_document_submitted': has_document_submitted,
             'user': serializer.data
         }, status=status.HTTP_200_OK)
     except Exception as e:
@@ -207,6 +213,79 @@ def kyc_pending(request):
         
         # Get pending KYC users
         queryset = User.objects.filter(kyc_status=User.KYC_PENDING)
+        
+        # Apply search filter
+        if search:
+            queryset = queryset.filter(
+                name__icontains=search
+            ) | queryset.filter(
+                phone__icontains=search
+            )
+        
+        # Order by created_at
+        queryset = queryset.order_by('-created_at')
+        
+        # Paginate
+        paginator = Paginator(queryset, page_size)
+        total_pages = paginator.num_pages
+        
+        if page > total_pages:
+            page = total_pages
+        if page < 1:
+            page = 1
+        
+        page_obj = paginator.get_page(page)
+        
+        serializer = KYCSerializer(page_obj, many=True, context={'request': request})
+        
+        return Response({
+            'kyc_list': serializer.data,
+            'count': paginator.count,
+            'page': page,
+            'total_pages': total_pages,
+            'page_size': page_size
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+def kyc_list(request):
+    """List KYC with status filter (super admin only)"""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+    if not request.user.is_superuser:
+        return Response(
+            {'error': 'Only super admins can view KYC list'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    try:
+        # Get query parameters
+        status_filter = request.GET.get('status', 'all').strip().lower()
+        search = request.GET.get('search', '').strip()
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 10))
+        
+        # Get all users with KYC documents (exclude superusers)
+        queryset = User.objects.filter(is_superuser=False)
+        
+        # Apply status filter
+        if status_filter == 'pending':
+            queryset = queryset.filter(kyc_status=User.KYC_PENDING)
+        elif status_filter == 'approved':
+            queryset = queryset.filter(kyc_status=User.KYC_APPROVED)
+        elif status_filter == 'rejected':
+            queryset = queryset.filter(kyc_status=User.KYC_REJECTED)
+        # 'all' means no status filter
         
         # Apply search filter
         if search:

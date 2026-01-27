@@ -42,6 +42,8 @@ def login(request):
         from datetime import date
         django_login(request, user)
         
+        # Mark session as modified to ensure cookie is set
+        request.session.modified = True
         # Explicitly save the session to ensure cookie is set
         request.session.save()
         

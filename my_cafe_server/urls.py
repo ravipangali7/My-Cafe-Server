@@ -23,7 +23,7 @@ from core.views import (
     # Auth views
     login, register, logout, get_user, update_user, get_fcm_tokens, save_fcm_token,
     # Dashboard
-    dashboard_stats,
+    dashboard_stats, vendor_dashboard_data, super_admin_dashboard_data,
     # Vendor views
     vendor_list, vendor_create, vendor_detail, vendor_edit, vendor_delete,
     # Product views
@@ -47,10 +47,11 @@ from core.views import (
 )
 
 # Import new views
-from core.views.kyc_views import kyc_status, kyc_submit, kyc_approve, kyc_reject, kyc_pending
-from core.views.subscription_views import subscription_status, subscription_plans, subscription_subscribe, subscription_payment_success
+from core.views.kyc_views import kyc_status, kyc_submit, kyc_approve, kyc_reject, kyc_pending, kyc_list
+from core.views.subscription_views import subscription_status, subscription_plans, subscription_subscribe, subscription_payment_success, subscription_transactions, subscription_history
 from core.views.qr_stand_views import qr_stand_order_list, qr_stand_order_create, qr_stand_order_detail, qr_stand_order_update, qr_stand_order_delete
 from core.views.qr_views import qr_generate, qr_download_pdf
+from core.views.invoice_views import invoice_generate, invoice_download
 
 urlpatterns = [
     
@@ -67,6 +68,8 @@ urlpatterns = [
     path('api/dashboard/stats', dashboard_stats, name='dashboard_stats'),  # No trailing slash to avoid redirect
     path('api/dashboard/stats/', dashboard_stats, name='dashboard_stats_slash'),
     path('api/dashboard/users-stats/', users_stats, name='users_stats'),
+    path('api/dashboard/vendor-data/', vendor_dashboard_data, name='vendor_dashboard_data'),
+    path('api/dashboard/super-admin-data/', super_admin_dashboard_data, name='super_admin_dashboard_data'),
     
     # Vendor endpoints
     path('api/vendors/', vendor_list, name='vendor_list'),
@@ -118,6 +121,10 @@ urlpatterns = [
     path('api/orders/<int:id>/edit/', order_edit, name='order_edit'),
     path('api/orders/<int:id>/delete/', order_delete, name='order_delete'),
     
+    # Invoice endpoints
+    path('api/orders/<int:order_id>/invoice/generate/', invoice_generate, name='invoice_generate'),
+    path('api/orders/<int:order_id>/invoice/download/', invoice_download, name='invoice_download'),
+    
     # Transaction endpoints
     path('api/transactions/', transaction_list, name='transaction_list'),
     path('api/transactions/<int:id>/', transaction_detail, name='transaction_detail'),
@@ -132,12 +139,15 @@ urlpatterns = [
     path('api/kyc/approve/<int:id>/', kyc_approve, name='kyc_approve'),
     path('api/kyc/reject/<int:id>/', kyc_reject, name='kyc_reject'),
     path('api/kyc/pending/', kyc_pending, name='kyc_pending'),
+    path('api/kyc/list/', kyc_list, name='kyc_list'),
     
     # Subscription endpoints
     path('api/subscription/status/', subscription_status, name='subscription_status'),
     path('api/subscription/plans/', subscription_plans, name='subscription_plans'),
     path('api/subscription/subscribe/', subscription_subscribe, name='subscription_subscribe'),
     path('api/subscription/payment-success/', subscription_payment_success, name='subscription_payment_success'),
+    path('api/subscription/transactions/', subscription_transactions, name='subscription_transactions'),
+    path('api/subscription/history/', subscription_history, name='subscription_history'),
     
     # QR Stand Order endpoints
     path('api/qr-stands/orders/', qr_stand_order_list, name='qr_stand_order_list'),

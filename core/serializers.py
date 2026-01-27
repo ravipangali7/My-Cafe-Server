@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     User, Unit, Category, Product, ProductVariant,
-    Order, OrderItem, TransactionHistory, SuperSetting, QRStandOrder
+    Order, OrderItem, TransactionHistory, SuperSetting, QRStandOrder, Invoice
 )
 
 
@@ -173,12 +173,21 @@ class ProductSerializer(serializers.ModelSerializer):
 
 class OrderItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.name', read_only=True)
+    product_image_url = serializers.SerializerMethodField()
     variant_info = serializers.SerializerMethodField()
     
     class Meta:
         model = OrderItem
-        fields = ['id', 'product', 'product_name', 'product_variant', 'variant_info', 'price', 'quantity', 'total', 'created_at', 'updated_at']
+        fields = ['id', 'product', 'product_name', 'product_image_url', 'product_variant', 'variant_info', 'price', 'quantity', 'total', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_product_image_url(self, obj):
+        if obj.product and obj.product.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.product.image.url)
+            return obj.product.image.url
+        return None
     
     def get_variant_info(self, obj):
         if obj.product_variant:
