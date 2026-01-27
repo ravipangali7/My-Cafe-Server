@@ -48,8 +48,8 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'core.middleware.DisableCSRFForAPI',  # Disable CSRF for all /api/ endpoints - MUST be before CommonMiddleware
     'django.middleware.common.CommonMiddleware',
-    'core.middleware.DisableCSRFForAPI',  # Disable CSRF for all /api/ endpoints
     # CSRF middleware completely removed - not needed for API endpoints
     # 'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',

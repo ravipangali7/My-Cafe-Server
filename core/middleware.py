@@ -31,8 +31,12 @@ class DisableCSRFForAPI(MiddlewareMixin):
             pass
         # #endregion
         
+        # Disable CSRF for ALL /api/ endpoints - set multiple flags to ensure it works
         if request.path.startswith('/api/'):
+            # Set the standard Django CSRF bypass flag
             setattr(request, '_dont_enforce_csrf_checks', True)
+            # Also set CSRF_COOKIE_USED to False to prevent cookie checks
+            setattr(request, 'csrf_processing_done', True)
             # #region agent log
             try:
                 with open(log_path, 'a', encoding='utf-8') as f:
@@ -44,7 +48,8 @@ class DisableCSRFForAPI(MiddlewareMixin):
                         "message": "Set _dont_enforce_csrf_checks=True",
                         "data": {
                             "path": request.path,
-                            "flag_set": True
+                            "flag_set": True,
+                            "dont_enforce_value": getattr(request, '_dont_enforce_csrf_checks', None)
                         },
                         "timestamp": int(time.time() * 1000)
                     }

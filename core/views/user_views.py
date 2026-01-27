@@ -319,6 +319,9 @@ def save_fcm_token_by_phone(request):
     Save FCM token by phone number (no authentication required)
     Used by Flutter app to register device tokens
     """
+    # Explicitly disable CSRF checks (in addition to @csrf_exempt decorator)
+    request._dont_enforce_csrf_checks = True
+    
     # #region agent log
     import os
     log_path = r'c:\CODE\My_Cafe\.cursor\debug.log'
