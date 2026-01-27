@@ -319,6 +319,33 @@ def save_fcm_token_by_phone(request):
     Save FCM token by phone number (no authentication required)
     Used by Flutter app to register device tokens
     """
+    # #region agent log
+    import os
+    log_path = r'c:\CODE\My_Cafe\.cursor\debug.log'
+    try:
+        with open(log_path, 'a', encoding='utf-8') as f:
+            import json as json_lib
+            import time
+            log_entry = {
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A",
+                "location": "user_views.py:317",
+                "message": "View function called",
+                "data": {
+                    "method": request.method,
+                    "path": request.path,
+                    "has_dont_enforce_flag": hasattr(request, '_dont_enforce_csrf_checks'),
+                    "dont_enforce_value": getattr(request, '_dont_enforce_csrf_checks', None),
+                    "csrf_exempt_applied": True
+                },
+                "timestamp": int(time.time() * 1000)
+            }
+            f.write(json_lib.dumps(log_entry) + '\n')
+    except Exception:
+        pass
+    # #endregion
+    
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed'}, status=405)
     
@@ -382,6 +409,31 @@ def save_fcm_token_by_phone(request):
         }, status=201)
         
     except Exception as e:
+        # #region agent log
+        try:
+            import os
+            log_path = r'c:\CODE\My_Cafe\.cursor\debug.log'
+            with open(log_path, 'a', encoding='utf-8') as f:
+                import json as json_lib
+                import time
+                import traceback
+                log_entry = {
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "F",
+                    "location": "user_views.py:384",
+                    "message": "Exception in save_fcm_token_by_phone",
+                    "data": {
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "traceback": traceback.format_exc()
+                    },
+                    "timestamp": int(time.time() * 1000)
+                }
+                f.write(json_lib.dumps(log_entry) + '\n')
+        except Exception:
+            pass
+        # #endregion
         return JsonResponse(
             {'error': str(e)},
             status=500

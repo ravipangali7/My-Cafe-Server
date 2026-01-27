@@ -6,8 +6,52 @@ class DisableCSRFForAPI(MiddlewareMixin):
     """Middleware to disable CSRF for all /api/ endpoints and ensure CORS headers"""
     
     def process_request(self, request):
+        # #region agent log
+        import os
+        log_path = r'c:\CODE\My_Cafe\.cursor\debug.log'
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                import json as json_lib
+                import time
+                log_entry = {
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "C",
+                    "location": "middleware.py:8",
+                    "message": "DisableCSRFForAPI middleware process_request",
+                    "data": {
+                        "path": request.path,
+                        "starts_with_api": request.path.startswith('/api/'),
+                        "method": request.method
+                    },
+                    "timestamp": int(time.time() * 1000)
+                }
+                f.write(json_lib.dumps(log_entry) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        
         if request.path.startswith('/api/'):
             setattr(request, '_dont_enforce_csrf_checks', True)
+            # #region agent log
+            try:
+                with open(log_path, 'a', encoding='utf-8') as f:
+                    log_entry = {
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "C",
+                        "location": "middleware.py:11",
+                        "message": "Set _dont_enforce_csrf_checks=True",
+                        "data": {
+                            "path": request.path,
+                            "flag_set": True
+                        },
+                        "timestamp": int(time.time() * 1000)
+                    }
+                    f.write(json_lib.dumps(log_entry) + '\n')
+            except Exception:
+                pass
+            # #endregion
         return None
     
     def _get_http_response(self, response):
