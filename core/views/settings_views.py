@@ -175,7 +175,7 @@ def update_settings(request):
         
         setting, created = SuperSetting.objects.get_or_create(id=1)
         
-        # Update expire_duration_month if provided
+        # Update expire_duration_month if provided, or set default when creating
         if expire_duration_month is not None:
             try:
                 setting.expire_duration_month = int(expire_duration_month)
@@ -189,6 +189,9 @@ def update_settings(request):
                     {'error': 'expire_duration_month must be a valid integer'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+        elif created:
+            # If creating new setting and expire_duration_month not provided, use default
+            setting.expire_duration_month = 12
         
         # Update per_qr_stand_price if provided (integer only)
         if per_qr_stand_price is not None:
