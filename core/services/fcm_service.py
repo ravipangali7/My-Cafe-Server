@@ -11,7 +11,16 @@ logger = logging.getLogger(__name__)
 try:
     import firebase_admin
     from firebase_admin import credentials, messaging
-    from firebase_admin.messaging import WebpushConfig, WebpushNotification
+    from firebase_admin.messaging import (
+        WebpushConfig,
+        WebpushNotification,
+        AndroidConfig,
+        AndroidNotification,
+        APNSConfig,
+        APNSPayload,
+        Aps,
+        ApsAlert,
+    )
     FIREBASE_AVAILABLE = True
 except ImportError:
     FIREBASE_AVAILABLE = False
@@ -110,3 +119,112 @@ def send_fcm_notification(fcm_token: str, title: str, body: str, data: dict = No
     except Exception as e:
         logger.error(f"Failed to send FCM notification: {str(e)}")
         return False
+
+
+def send_incoming_order_to_vendor(order):
+    """
+    Send HIGH PRIORITY FCM to all vendor devices for an incoming order.
+    Called on order create only. Uses FcmToken table for order.user.
+    Data: type=incoming_order, order_id, total, items_count, name, table_no.
+    """
+    if not FIREBASE_AVAILABLE:
+        logger.warning("Firebase Admin SDK not available. Cannot send incoming order alert.")
+        return
+
+    from ..models import FcmToken
+
+    tokens = list(
+        FcmToken.objects.filter(user=order.user).values_list("token", flat=True).distinct()
+    )
+    if not tokens:
+        logger.warning(f"No FCM tokens for vendor user id={order.user_id}, skipping incoming order alert.")
+        return
+
+    items_count = order.items.count()
+    data_dict = {
+        "type": "incoming_order",
+        "order_id": str(order.id),
+        "total": str(order.total),
+        "items_count": str(items_count),
+        "name": str(order.name or ""),
+        "table_no": str(order.table_no or ""),
+    }
+
+    title = "New order"
+    body = f"Order #{order.id} - {order.name or 'Customer'} - Table {order.table_no} - ₹{order.total}"
+
+    if not initialize_firebase():
+        return
+
+    for token in tokens:
+        try:
+            message = messaging.Message(
+                data=data_dict,
+                token=token,
+                android=AndroidConfig(
+                    priority="high",
+                    notification=AndroidNotification(
+                        title=title,
+                        body=body,
+                        channel_id="incoming_order",
+                        priority="high",
+                    ),
+                ),
+                apns=APNSConfig(
+                    headers={"apns-priority": "10"},
+                    payload=APNSPayload(
+                        aps=Aps(
+                            content_available=True,
+                            alert=ApsAlert(title=title, body=body),
+                            sound="default",
+                        )
+                    ),
+                ),
+            )
+            messaging.send(message)
+            logger.info(f"Sent incoming_order FCM for order {order.id} to token ...{token[-8:]}")
+        except messaging.UnregisteredError:
+            logger.warning(f"FCM token unregistered, skipping: ...{token[-8:]}")
+        except Exception as e:
+            logger.error(f"Failed to send incoming_order FCM to token ...{token[-8:]}: {e}")
+
+
+def send_dismiss_incoming_to_vendor(user, order_id, action):
+    """
+    Send FCM to all vendor devices to dismiss incoming order UI (stop ringtone/vibration).
+    action: 'accept' or 'reject'. Called after order status is updated to accepted/rejected.
+    """
+    if not FIREBASE_AVAILABLE:
+        return
+
+    from ..models import FcmToken
+
+    tokens = list(
+        FcmToken.objects.filter(user=user).values_list("token", flat=True).distinct()
+    )
+    if not tokens:
+        return
+
+    data_dict = {
+        "type": "dismiss_incoming",
+        "order_id": str(order_id),
+        "action": str(action),
+    }
+
+    if not initialize_firebase():
+        return
+
+    for token in tokens:
+        try:
+            message = messaging.Message(
+                data=data_dict,
+                token=token,
+                android=AndroidConfig(priority="high"),
+                apns=APNSConfig(headers={"apns-priority": "10"}),
+            )
+            messaging.send(message)
+            logger.info(f"Sent dismiss_incoming FCM order_id={order_id} action={action} to token ...{token[-8:]}")
+        except messaging.UnregisteredError:
+            logger.warning(f"FCM token unregistered, skipping: ...{token[-8:]}")
+        except Exception as e:
+            logger.error(f"Failed to send dismiss_incoming FCM: {e}")

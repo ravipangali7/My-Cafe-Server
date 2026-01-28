@@ -7,7 +7,7 @@ from django.db.models import Q
 from django.core.paginator import Paginator
 from ..models import Order, OrderItem, Product, ProductVariant, User
 from ..serializers import OrderSerializer, OrderItemSerializer
-from ..services.fcm_service import send_fcm_notification
+from ..services.fcm_service import send_fcm_notification, send_incoming_order_to_vendor, send_dismiss_incoming_to_vendor
 
 
 @api_view(['GET'])
@@ -178,25 +178,15 @@ def order_create(request):
         except (json.JSONDecodeError, ValueError):
             pass
         
-        # Send FCM notification if token is provided and status is pending
-        if fcm_token and status_val == 'pending':
+        # Send HIGH PRIORITY FCM to all vendor devices (from FcmToken table)
+        if status_val == 'pending':
             try:
-                # Ensure all data values are strings (required for FCM)
-                send_fcm_notification(
-                    fcm_token=fcm_token,
-                    title='Order Placed',
-                    body='Your Order is Pending right now wait for accept from kitchen',
-                    data={
-                        'order_id': str(order.id),
-                        'status': str(status_val)
-                    }
-                )
+                send_incoming_order_to_vendor(order)
             except Exception as e:
-                # Log error but don't fail the order creation
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.error(f'Failed to send FCM notification: {str(e)}')
-        
+                logger.error(f'Failed to send incoming order FCM: {str(e)}')
+
         serializer = OrderSerializer(order, context={'request': request})
         return Response({'order': serializer.data}, status=status.HTTP_201_CREATED)
         
@@ -278,11 +268,19 @@ def order_edit(request, id):
             order.reject_reason = reject_reason
         
         order.save()
-        
-        # Send FCM notification if status changed and fcm_token exists
+
+        # Dismiss incoming order UI on all vendor devices when accept/reject
+        if status_val and status_val != old_status and status_val in ('accepted', 'rejected'):
+            try:
+                send_dismiss_incoming_to_vendor(order.user, order.id, status_val)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f'Failed to send dismiss_incoming FCM for order {order.id}: {str(e)}')
+
+        # Send FCM notification to customer if status changed and order.fcm_token exists (customer device)
         if status_val and status_val != old_status and order.fcm_token:
             try:
-                # Map status to notification messages
                 status_messages = {
                     'pending': {
                         'title': 'Order Status Update',
@@ -301,13 +299,10 @@ def order_edit(request, id):
                         'body': f'Your Order #{order.id} is ready! Please collect from table {order.table_no}'
                     }
                 }
-                
                 message = status_messages.get(status_val, {
                     'title': 'Order Status Update',
                     'body': f'Your Order #{order.id} status has been updated to {status_val}'
                 })
-                
-                # Ensure all data values are strings (required for FCM)
                 send_fcm_notification(
                     fcm_token=order.fcm_token,
                     title=message['title'],
@@ -319,11 +314,10 @@ def order_edit(request, id):
                     }
                 )
             except Exception as e:
-                # Log error but don't fail the order update
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.error(f'Failed to send FCM notification for order {order.id}: {str(e)}')
-        
+
         # Update items if provided
         if items_data:
             try:
