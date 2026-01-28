@@ -1,3 +1,4 @@
+import re
 from django.utils.deprecation import MiddlewareMixin
 from django.http import JsonResponse, HttpResponse
 from django.conf import settings
@@ -64,10 +65,10 @@ class DisableCSRFForAPI(MiddlewareMixin):
                         )
         
         # Prevent redirects for API endpoints - return JSON error instead
-        if request.path.startswith('/api/') and response.status_code in [302, 301, 307, 308]:
-            # For API endpoints, ANY redirect should be converted to a JSON 401 response
-            # This handles cases where Django redirects for authentication or other reasons
-            # The frontend will handle opaque redirects (CORS) separately
+        # Allow redirects for vendor logo (serves media URL) so CORS/fetch work
+        if (request.path.startswith('/api/') and
+                response.status_code in [302, 301, 307, 308] and
+                not re.match(r'^/api/vendors/\d+/logo/?$', request.path)):
             return JsonResponse(
                 {'error': 'Not authenticated'},
                 status=401
