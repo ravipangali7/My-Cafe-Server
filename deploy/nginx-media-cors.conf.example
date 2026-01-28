@@ -9,8 +9,16 @@
 
 location /media/ {
     alias /path/to/your/project/media/;
-    add_header Access-Control-Allow-Origin "https://mycafe.sewabyapar.com";
+    add_header Access-Control-Allow-Origin "https://mycafe.sewabyapar.com" always;
+    add_header Access-Control-Allow-Credentials "true" always;
+    if ($request_method = OPTIONS) {
+        add_header Access-Control-Allow-Origin "https://mycafe.sewabyapar.com";
+        add_header Access-Control-Allow-Credentials "true";
+        add_header Access-Control-Allow-Methods "GET, OPTIONS";
+        add_header Access-Control-Max-Age 86400;
+        return 204;
+    }
 }
 
 # If you have multiple allowed frontend origins, you can use the request origin
-# (requires nginx map or similar). For a single frontend, the line above is enough.
+# (requires nginx map or similar). For a single frontend, the block above is enough.

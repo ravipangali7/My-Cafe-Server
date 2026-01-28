@@ -173,7 +173,7 @@ urlpatterns = [
     path('media/<path:path>', serve_media_cors, name='serve_media_cors'),
 ]
 
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Media is served by serve_media_cors above (CORS headers); do not add static(MEDIA_URL, MEDIA_ROOT).
 urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
 urlpatterns.append(
