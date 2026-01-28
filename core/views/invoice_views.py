@@ -144,11 +144,11 @@ def invoice_download(request, order_id):
             invoice.total_amount = order.total
             invoice.save()
         
-        # Return PDF file as response
+        # Return PDF file as response (storage-agnostic: works with local and remote storage)
         try:
-            pdf_path = invoice.pdf_file.path
+            file_handle = invoice.pdf_file.open('rb')
             response = FileResponse(
-                open(pdf_path, 'rb'),
+                file_handle,
                 content_type='application/pdf'
             )
             response['Content-Disposition'] = f'attachment; filename="invoice_order_{order.id}.pdf"'
