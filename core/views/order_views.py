@@ -439,19 +439,19 @@ def order_edit(request, id):
 
 @api_view(['GET'])
 def order_delete(request, id):
-    """Delete an order"""
+    """Delete an order. Only superusers can delete orders; vendors cannot."""
     if not request.user.is_authenticated:
         return Response(
             {'error': 'Not authenticated'},
             status=status.HTTP_401_UNAUTHORIZED
         )
-    
+    if not request.user.is_superuser:
+        return Response(
+            {'error': 'Only superusers can delete orders'},
+            status=status.HTTP_403_FORBIDDEN
+        )
     try:
-        # Superusers can delete any order, regular users only their own
-        if request.user.is_superuser:
-            order = Order.objects.get(id=id)
-        else:
-            order = Order.objects.get(id=id, user=request.user)
+        order = Order.objects.get(id=id)
         order.delete()
         return Response({'message': 'Order deleted successfully'}, status=status.HTTP_200_OK)
     except Order.DoesNotExist:
