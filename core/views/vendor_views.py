@@ -4,10 +4,13 @@ from rest_framework import status
 from django.contrib.auth import authenticate
 from django.db.models import Q
 from django.core.paginator import Paginator
+from django.http import HttpResponse
+from django.shortcuts import redirect
 from datetime import timedelta
 import json
 from ..models import User, SuperSetting
 from ..serializers import UserSerializer
+from ..services.logo_service import generate_logo_image
 
 
 @api_view(['GET'])
@@ -312,6 +315,41 @@ def vendor_edit(request, id):
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['GET'])
+def vendor_logo_image(request, id):
+    """Serve vendor logo image: uploaded file or auto-generated from name."""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    try:
+        if request.user.is_superuser:
+            vendor = User.objects.get(id=id)
+        else:
+            if int(id) != request.user.id:
+                return Response(
+                    {'error': 'You can only access your own logo'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            vendor = request.user
+    except User.DoesNotExist:
+        return Response(
+            {'error': 'Vendor not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    if vendor.logo:
+        try:
+            url = request.build_absolute_uri(vendor.logo.url)
+            return redirect(url)
+        except Exception:
+            pass
+    # No logo or file missing: generate from name
+    buffer = generate_logo_image(vendor.name, size=(256, 256))
+    return HttpResponse(buffer.getvalue(), content_type='image/png')
 
 
 @api_view(['DELETE'])

@@ -17,6 +17,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from ..models import Invoice
+from .logo_service import generate_logo_image
 
 
 def generate_order_invoice(order):
@@ -193,7 +194,13 @@ def generate_order_invoice(order):
         except Exception:
             left_panel_elements.append(Paragraph("Your® LOGO", logo_style))
     else:
-        left_panel_elements.append(Paragraph("Your® LOGO", logo_style))
+        # Auto-generated logo from vendor name
+        try:
+            logo_buffer = generate_logo_image(vendor_name, size=(120, 120))
+            logo = Image(logo_buffer, width=1.5*inch, height=1.5*inch)
+            left_panel_elements.append(logo)
+        except Exception:
+            left_panel_elements.append(Paragraph("Your® LOGO", logo_style))
     
     left_panel_elements.append(Spacer(1, 0.4*inch))
     

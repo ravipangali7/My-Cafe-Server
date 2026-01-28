@@ -25,7 +25,7 @@ from core.views import (
     # Dashboard
     dashboard_stats, vendor_dashboard_data, super_admin_dashboard_data,
     # Vendor views
-    vendor_list, vendor_create, vendor_detail, vendor_edit, vendor_delete,
+    vendor_list, vendor_create, vendor_detail, vendor_edit, vendor_delete, vendor_logo_image,
     # Product views
     product_list, product_create, product_detail, product_edit, product_delete,
     # Category views
@@ -76,6 +76,7 @@ urlpatterns = [
     path('api/vendors/', vendor_list, name='vendor_list'),
     path('api/vendors/create/', vendor_create, name='vendor_create'),
     path('api/vendors/<int:id>/', vendor_detail, name='vendor_detail'),
+    path('api/vendors/<int:id>/logo/', vendor_logo_image, name='vendor_logo_image'),
     path('api/vendors/<int:id>/edit/', vendor_edit, name='vendor_edit'),
     path('api/vendors/<int:id>/delete/', vendor_delete, name='vendor_delete'),
     

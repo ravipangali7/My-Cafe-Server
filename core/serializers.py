@@ -1,3 +1,4 @@
+from django.urls import reverse
 from rest_framework import serializers
 from .models import (
     User, Unit, Category, Product, ProductVariant,
@@ -20,11 +21,14 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_logo_url(self, obj):
+        request = self.context.get('request')
         if obj.logo:
-            request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.logo.url)
             return obj.logo.url
+        # No uploaded logo: return URL to auto-generated logo endpoint
+        if request:
+            return request.build_absolute_uri(reverse('vendor_logo_image', args=[obj.id]))
         return None
     
     def get_kyc_document_url(self, obj):
