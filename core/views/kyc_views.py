@@ -254,6 +254,35 @@ def kyc_pending(request):
 
 
 @api_view(['GET'])
+def kyc_detail(request, id):
+    """Get single KYC record by user id (super admin only)"""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    if not request.user.is_superuser:
+        return Response(
+            {'error': 'Only super admins can view KYC details'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    try:
+        user = User.objects.get(id=id)
+        serializer = KYCSerializer(user, context={'request': request})
+        return Response({'kyc': serializer.data}, status=status.HTTP_200_OK)
+    except User.DoesNotExist:
+        return Response(
+            {'error': 'KYC record not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
 def kyc_list(request):
     """List KYC with status filter (super admin only)"""
     if not request.user.is_authenticated:

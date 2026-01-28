@@ -100,3 +100,22 @@ def menu_by_vendor_phone(request, vendor_phone):
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['GET'])
+def vendor_public_by_phone(request, vendor_phone):
+    """Get minimal vendor info by phone for public QR page - no authentication required"""
+    try:
+        vendor = User.objects.filter(phone=vendor_phone, is_active=True).first()
+        if not vendor:
+            return Response(
+                {'error': 'Vendor not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        serializer = UserSerializer(vendor, context={'request': request})
+        return Response({'vendor': serializer.data}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

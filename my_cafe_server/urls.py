@@ -47,7 +47,8 @@ from core.views import (
 )
 
 # Import new views
-from core.views.kyc_views import kyc_status, kyc_submit, kyc_approve, kyc_reject, kyc_pending, kyc_list
+from core.views.kyc_views import kyc_status, kyc_submit, kyc_approve, kyc_reject, kyc_pending, kyc_list, kyc_detail
+from core.views.menu_views import vendor_public_by_phone
 from core.views.subscription_views import subscription_status, subscription_plans, subscription_subscribe, subscription_payment_success, subscription_transactions, subscription_history
 from core.views.qr_stand_views import qr_stand_order_list, qr_stand_order_create, qr_stand_order_detail, qr_stand_order_update, qr_stand_order_delete
 from core.views.qr_views import qr_generate, qr_download_pdf
@@ -138,6 +139,7 @@ urlpatterns = [
     # KYC endpoints
     path('api/kyc/status/', kyc_status, name='kyc_status'),
     path('api/kyc/submit/', kyc_submit, name='kyc_submit'),
+    path('api/kyc/<int:id>/', kyc_detail, name='kyc_detail'),
     path('api/kyc/approve/<int:id>/', kyc_approve, name='kyc_approve'),
     path('api/kyc/reject/<int:id>/', kyc_reject, name='kyc_reject'),
     path('api/kyc/pending/', kyc_pending, name='kyc_pending'),
@@ -164,6 +166,7 @@ urlpatterns = [
     
     # Menu endpoints (public)
     path('api/menu/<str:vendor_phone>/', menu_by_vendor_phone, name='menu_by_vendor_phone'),
+    path('api/public/vendor/<str:vendor_phone>/', vendor_public_by_phone, name='vendor_public_by_phone'),
     
 ]
 
