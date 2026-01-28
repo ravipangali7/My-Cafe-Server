@@ -53,6 +53,7 @@ from core.views.subscription_views import subscription_status, subscription_plan
 from core.views.qr_stand_views import qr_stand_order_list, qr_stand_order_create, qr_stand_order_detail, qr_stand_order_update, qr_stand_order_delete
 from core.views.qr_views import qr_generate, qr_download_pdf
 from core.views.invoice_views import invoice_generate, invoice_download
+from core.views.media_views import serve_media_cors
 
 urlpatterns = [
     
@@ -168,6 +169,8 @@ urlpatterns = [
     path('api/menu/<str:vendor_phone>/', menu_by_vendor_phone, name='menu_by_vendor_phone'),
     path('api/public/vendor/<str:vendor_phone>/', vendor_public_by_phone, name='vendor_public_by_phone'),
     
+    # Media with CORS (public, no auth) - so frontend can load logos/images cross-origin
+    path('media/<path:path>', serve_media_cors, name='serve_media_cors'),
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -1,0 +1,16 @@
+# Example nginx location block for serving /media/ with CORS headers.
+# Use this when nginx (or your reverse proxy) serves media files directly
+# so the frontend (e.g. https://mycafe.sewabyapar.com) can load images cross-origin.
+#
+# Add this location inside your server { } block for mycafeserver.sewabyapar.com,
+# then reload nginx: sudo nginx -s reload (or your server's reload command).
+#
+# Replace /path/to/your/project/media with the actual MEDIA_ROOT path on the server.
+
+location /media/ {
+    alias /path/to/your/project/media/;
+    add_header Access-Control-Allow-Origin "https://mycafe.sewabyapar.com";
+}
+
+# If you have multiple allowed frontend origins, you can use the request origin
+# (requires nginx map or similar). For a single frontend, the line above is enough.
