@@ -1,9 +1,10 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
 from ..models import User
 from ..serializers import UserSerializer
+from ..services.qr_card_service import generate_qr_card_png, generate_qr_card_pdf
 
 
 @api_view(['GET'])
@@ -111,3 +112,37 @@ def qr_download_pdf(request, vendor_id):
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['GET'])
+def qr_card_download_png(request, vendor_phone):
+    """Download QR card as PNG. Public endpoint (by vendor_phone)."""
+    vendor = User.objects.filter(phone=vendor_phone, is_active=True).first()
+    if not vendor:
+        return Response(
+            {'error': 'Vendor not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    menu_url = f"{request.scheme}://{request.get_host()}/menu/{vendor.phone}"
+    buffer = generate_qr_card_png(vendor, menu_url)
+    filename = f"qr-code-{vendor.phone}.png"
+    response = HttpResponse(buffer.getvalue(), content_type='image/png')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+@api_view(['GET'])
+def qr_card_download_pdf(request, vendor_phone):
+    """Download QR card as PDF. Public endpoint (by vendor_phone)."""
+    vendor = User.objects.filter(phone=vendor_phone, is_active=True).first()
+    if not vendor:
+        return Response(
+            {'error': 'Vendor not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    menu_url = f"{request.scheme}://{request.get_host()}/menu/{vendor.phone}"
+    buffer = generate_qr_card_pdf(vendor, menu_url)
+    filename = f"qr-code-{vendor.phone}.pdf"
+    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response

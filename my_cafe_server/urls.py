@@ -51,7 +51,7 @@ from core.views.kyc_views import kyc_status, kyc_submit, kyc_approve, kyc_reject
 from core.views.menu_views import vendor_public_by_phone
 from core.views.subscription_views import subscription_status, subscription_plans, subscription_subscribe, subscription_payment_success, subscription_transactions, subscription_history
 from core.views.qr_stand_views import qr_stand_order_list, qr_stand_order_create, qr_stand_order_detail, qr_stand_order_update, qr_stand_order_delete
-from core.views.qr_views import qr_generate, qr_download_pdf
+from core.views.qr_views import qr_generate, qr_download_pdf, qr_card_download_png, qr_card_download_pdf
 from core.views.invoice_views import invoice_generate, invoice_download
 
 urlpatterns = [
@@ -163,6 +163,9 @@ urlpatterns = [
     # QR Generation endpoints
     path('api/qr/generate/<int:vendor_id>/', qr_generate, name='qr_generate'),
     path('api/qr/download-pdf/<int:vendor_id>/', qr_download_pdf, name='qr_download_pdf'),
+    # QR card download (by vendor_phone, public)
+    path('api/qr/card/download-png/<str:vendor_phone>/', qr_card_download_png, name='qr_card_download_png'),
+    path('api/qr/card/download-pdf/<str:vendor_phone>/', qr_card_download_pdf, name='qr_card_download_pdf'),
     
     # Menu endpoints (public)
     path('api/menu/<str:vendor_phone>/', menu_by_vendor_phone, name='menu_by_vendor_phone'),
