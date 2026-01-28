@@ -1,6 +1,7 @@
 """
 FCM (Firebase Cloud Messaging) service for sending push notifications
 """
+import json
 import os
 from django.conf import settings
 import logging
@@ -140,7 +141,18 @@ def send_incoming_order_to_vendor(order):
         logger.warning(f"No FCM tokens for vendor user id={order.user_id}, skipping incoming order alert.")
         return
 
-    items_count = order.items.count()
+    items_qs = order.items.select_related("product", "product_variant__unit")
+    items_count = items_qs.count()
+    items_list = [
+        {
+            "n": str(item.product.name),
+            "v": str(item.product_variant.unit.symbol),
+            "q": str(item.quantity),
+            "p": str(item.price),
+            "t": str(item.total),
+        }
+        for item in items_qs
+    ]
     data_dict = {
         "type": "incoming_order",
         "order_id": str(order.id),
@@ -148,6 +160,8 @@ def send_incoming_order_to_vendor(order):
         "items_count": str(items_count),
         "name": str(order.name or ""),
         "table_no": str(order.table_no or ""),
+        "phone": str(getattr(order, "phone", "") or ""),
+        "items": json.dumps(items_list),
     }
 
     title = "New order"
