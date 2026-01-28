@@ -1,0 +1,23 @@
+# If you serve /media/ directly from nginx (instead of proxying to Django),
+# add these headers so the frontend (e.g. mycafe.sewabyapar.com) can fetch
+# logos/images from this server (mycafeserver.sewabyapar.com) without CORS errors.
+#
+# Include this inside your server { } block, or merge into your existing location /media/ { }:
+#
+#   location /media/ {
+#     alias /path/to/your/MEDIA_ROOT/;   # or root + path
+#     add_header Access-Control-Allow-Origin $http_origin;
+#     add_header Access-Control-Allow-Credentials "true";
+#     add_header Vary Origin;
+#     if ($request_method = OPTIONS) {
+#       add_header Access-Control-Allow-Origin $http_origin;
+#       add_header Access-Control-Allow-Credentials "true";
+#       add_header Access-Control-Allow-Methods "GET, OPTIONS";
+#       add_header Access-Control-Max-Age 86400;
+#       add_header Content-Length 0;
+#       return 204;
+#     }
+#   }
+#
+# Restrict allowed origins by replacing add_header Access-Control-Allow-Origin $http_origin;
+# with a fixed value, e.g. add_header Access-Control-Allow-Origin "https://mycafe.sewabyapar.com";

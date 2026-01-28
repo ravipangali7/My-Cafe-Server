@@ -17,6 +17,8 @@ def _set_cors_headers_on_response(response, request):
         response["Access-Control-Allow-Origin"] = allowed[0]
     if getattr(settings, "CORS_ALLOW_CREDENTIALS", False):
         response["Access-Control-Allow-Credentials"] = "true"
+    # So caches do not serve a response with wrong CORS to another origin
+    response["Vary"] = "Origin"
 
 
 def serve_media_cors(request, path):
