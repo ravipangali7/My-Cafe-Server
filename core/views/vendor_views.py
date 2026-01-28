@@ -8,6 +8,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from datetime import timedelta
 import json
+import os
 from ..models import User, SuperSetting
 from ..serializers import UserSerializer
 from ..services.logo_service import generate_logo_image
@@ -342,12 +343,20 @@ def vendor_logo_image(request, id):
         )
 
     if vendor.logo:
-        try:
-            url = request.build_absolute_uri(vendor.logo.url)
-            return redirect(url)
-        except Exception:
-            pass
-    # No logo or file missing: generate from name
+        # Logo is configured: serve it only if file exists on disk; do not auto-generate
+        logo_path = getattr(vendor.logo, 'path', None)
+        if logo_path and os.path.exists(logo_path):
+            try:
+                url = request.build_absolute_uri(vendor.logo.url)
+                return redirect(url)
+            except Exception:
+                pass
+        # Logo field set but file missing: return 404 (do not generate)
+        return Response(
+            {'error': 'Logo file not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    # No logo configured: auto-generate from name
     buffer = generate_logo_image(vendor.name, size=(256, 256))
     return HttpResponse(buffer.getvalue(), content_type='image/png')
 
