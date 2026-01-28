@@ -37,12 +37,14 @@ class DisableCSRFForAPI(MiddlewareMixin):
         response['Access-Control-Expose-Headers'] = 'Set-Cookie'
     
     def process_response(self, request, response):
+        # Set CORS headers for API and media so frontend can fetch logos cross-origin
+        if request.path.startswith('/api/') or request.path.startswith('/media/'):
+            http_response = self._get_http_response(response)
+            self._set_cors_headers(request, http_response)
+
         if request.path.startswith('/api/'):
             # Get the actual HTTP response object
             http_response = self._get_http_response(response)
-            
-            # Set CORS headers manually
-            self._set_cors_headers(request, http_response)
             
             # Ensure session cookie is set for API endpoints if session exists
             if hasattr(request, 'session') and request.session.session_key:
