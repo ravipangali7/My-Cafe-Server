@@ -122,25 +122,13 @@ def send_fcm_notification(fcm_token: str, title: str, body: str, data: dict = No
         return False
 
 
-def get_product_image_url(product):
-    """
-    Get the absolute URL for a product image.
-    Returns empty string if no image is available.
-    """
-    if product and product.image:
-        try:
-            return f"https://mycafe.sewabyapar.com{product.image.url}"
-        except Exception:
-            return ""
-    return ""
-
-
 def send_incoming_order_to_vendor(order):
     """
     Send HIGH PRIORITY FCM to all vendor devices for an incoming order.
     Called on order create only. Uses FcmToken table for order.user.
     Data includes: type, order_id, total, items_count, name, table_no, phone, items.
-    Items include: name, variant, quantity, price, total, original_price, image_url.
+    Items include: name, variant, quantity, price, total, original_price.
+    Note: Images are not included in FCM payload - they are displayed on the web order view page.
     """
     if not FIREBASE_AVAILABLE:
         logger.warning("Firebase Admin SDK not available. Cannot send incoming order alert.")
@@ -165,7 +153,6 @@ def send_incoming_order_to_vendor(order):
             "p": str(item.price or 0),  # final price (after discount)
             "t": str(item.total or 0),  # line total
             "op": str(item.product_variant.price if item.product_variant else item.price or 0),  # original price (before discount)
-            "img": get_product_image_url(item.product),  # product image URL
         }
         for item in items_qs
     ]
