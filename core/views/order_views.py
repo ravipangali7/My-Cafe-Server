@@ -2,12 +2,18 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 import json
+import logging
+from datetime import datetime
 from decimal import Decimal
 from django.db.models import Q
 from django.core.paginator import Paginator
-from ..models import Order, OrderItem, Product, ProductVariant, User
+from ..models import Order, OrderItem, Product, ProductVariant, User, Invoice
 from ..serializers import OrderSerializer, OrderItemSerializer
 from ..services.fcm_service import send_fcm_notification, send_incoming_order_to_vendor, send_dismiss_incoming_to_vendor
+from ..services.pdf_service import generate_order_invoice
+from ..services.whatsapp_service import send_order_bill_whatsapp
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])
@@ -183,8 +189,6 @@ def order_create(request):
             try:
                 send_incoming_order_to_vendor(order)
             except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.error(f'Failed to send incoming order FCM: {str(e)}')
 
         serializer = OrderSerializer(order, context={'request': request})
@@ -274,9 +278,32 @@ def order_edit(request, id):
             try:
                 send_dismiss_incoming_to_vendor(order.user, order.id, status_val)
             except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.error(f'Failed to send dismiss_incoming FCM for order {order.id}: {str(e)}')
+
+        # Send WhatsApp bill to customer and vendor when order is accepted
+        if status_val == 'accepted' and status_val != old_status:
+            try:
+                # Generate or get invoice
+                invoice, _ = Invoice.objects.get_or_create(
+                    order=order,
+                    defaults={
+                        'invoice_number': f'INV-{order.id}-{datetime.now().strftime("%Y%m%d%H%M%S")}',
+                        'total_amount': order.total
+                    }
+                )
+                
+                # Generate PDF if not exists
+                if not invoice.pdf_file or not invoice.pdf_file.name:
+                    pdf_file = generate_order_invoice(order)
+                    invoice.pdf_file.save(pdf_file.name, pdf_file, save=True)
+                
+                # Build absolute URL for the PDF
+                pdf_url = request.build_absolute_uri(invoice.pdf_file.url)
+                
+                # Send WhatsApp notification
+                send_order_bill_whatsapp(order, pdf_url)
+            except Exception as e:
+                logger.error(f'Failed to send WhatsApp bill for order {order.id}: {str(e)}')
 
         # Send FCM notification to customer if status changed and order.fcm_token exists (customer device)
         if status_val and status_val != old_status and order.fcm_token:
@@ -314,8 +341,6 @@ def order_edit(request, id):
                     }
                 )
             except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
                 logger.error(f'Failed to send FCM notification for order {order.id}: {str(e)}')
 
         # Update items if provided

@@ -185,3 +185,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Set this to the path of your Firebase service account JSON key file
 # You can download this from Firebase Console > Project Settings > Service Accounts
 FIREBASE_SERVICE_ACCOUNT_KEY = os.path.join(BASE_DIR, 'firebase-service.json')
+
+# MSG91 WhatsApp API Configuration
+MSG91_AUTH_KEY = '490374AVpekOwdC6978f1bfP1'
+MSG91_WHATSAPP_INTEGRATED_NUMBER = '916364467524'
+MSG91_WHATSAPP_TEMPLATE_NAME = 'mycafe'
+MSG91_WHATSAPP_TEMPLATE_NAMESPACE = '127da27c_b9fd_4c25_9bb8_3b641684458e'
