@@ -13,8 +13,9 @@ MSG91_WHATSAPP_API_URL = 'https://api.msg91.com/api/v5/whatsapp/whatsapp-outboun
 
 def format_phone_number(phone: str) -> str:
     """
-    Format phone number with country code (91 for India if not present).
-    Removes any spaces, dashes, or other formatting characters.
+    Format phone number with country code.
+    - If phone already starts with valid prefix (977, 91, +91, +977, 00977, 0091), use as-is
+    - Otherwise, add 91 (India) prefix
     
     Args:
         phone: Phone number string
@@ -25,11 +26,18 @@ def format_phone_number(phone: str) -> str:
     if not phone:
         return ''
     
-    # Remove spaces, dashes, parentheses, and plus sign
+    # Strip whitespace
+    phone = phone.strip()
+    
+    # Check if phone already has a valid country code prefix (before removing special chars)
+    valid_prefixes = ('+977', '+91', '00977', '0091', '977', '91')
+    has_country_code = any(phone.startswith(prefix) for prefix in valid_prefixes)
+    
+    # Remove spaces, dashes, parentheses, and plus sign - keep only digits
     phone = ''.join(c for c in phone if c.isdigit())
     
-    # If phone is 10 digits, assume it's an Indian number and add 91
-    if len(phone) == 10:
+    # If no country code was present, add 91 (India)
+    if not has_country_code:
         phone = '91' + phone
     
     return phone
