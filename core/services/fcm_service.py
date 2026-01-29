@@ -172,23 +172,25 @@ def send_incoming_order_to_vendor(order):
 
     for token in tokens:
         try:
+            # IMPORTANT: Send DATA-ONLY message (no notification field)
+            # This ensures onMessageReceived() is called in Android even when app is killed/background
+            # Our native MyCafeFirebaseMessagingService handles: notification, ringtone, call UI
             message = messaging.Message(
                 data=data_dict,
                 token=token,
+                # Android: data-only with high priority - no notification field
+                # This triggers onMessageReceived() regardless of app state
                 android=AndroidConfig(
                     priority="high",
-                    notification=AndroidNotification(
-                        title=title,
-                        body=body,
-                        channel_id="incoming_order",
-                        priority="high",
-                    ),
+                    # NOTE: Do NOT add notification here - it would bypass our native handler
                 ),
+                # iOS: Keep APNs config for background wake
                 apns=APNSConfig(
                     headers={"apns-priority": "10"},
                     payload=APNSPayload(
                         aps=Aps(
                             content_available=True,
+                            # Alert for iOS since it doesn't have our native handler
                             alert=ApsAlert(title=title, body=body),
                             sound="default",
                         )
@@ -196,7 +198,7 @@ def send_incoming_order_to_vendor(order):
                 ),
             )
             messaging.send(message)
-            logger.info(f"Sent incoming_order FCM for order {order.id} to token ...{token[-8:]}")
+            logger.info(f"Sent incoming_order FCM (data-only) for order {order.id} to token ...{token[-8:]}")
         except messaging.UnregisteredError:
             logger.warning(f"FCM token unregistered, skipping: ...{token[-8:]}")
         except Exception as e:
