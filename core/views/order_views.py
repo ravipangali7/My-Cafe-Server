@@ -7,11 +7,12 @@ from datetime import datetime
 from decimal import Decimal
 from django.db.models import Q
 from django.core.paginator import Paginator
-from ..models import Order, OrderItem, Product, ProductVariant, User, Invoice
+from ..models import Order, OrderItem, Product, ProductVariant, User, Invoice, SuperSetting
 from ..serializers import OrderSerializer, OrderItemSerializer
 from ..services.fcm_service import send_fcm_notification, send_incoming_order_to_vendor, send_dismiss_incoming_to_vendor
 from ..services.pdf_service import generate_order_invoice
 from ..services.whatsapp_service import send_order_bill_whatsapp
+from ..utils.transaction_helpers import process_order_transactions
 
 logger = logging.getLogger(__name__)
 
@@ -143,14 +144,22 @@ def order_create(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Create order
+        # Fetch transaction fee from settings
+        settings = SuperSetting.objects.first()
+        transaction_fee = settings.per_transaction_fee if settings else 10
+        
+        # Calculate order amount (without fee) and total (with fee)
+        order_amount = Decimal(str(total))
+        total_with_fee = order_amount + Decimal(str(transaction_fee))
+        
+        # Create order with total including transaction fee
         order = Order.objects.create(
             name=name,
             phone=phone,
             table_no=table_no,
             status=status_val,
             payment_status=payment_status,
-            total=Decimal(str(total)),
+            total=total_with_fee,
             fcm_token=fcm_token,
             user=order_user
         )
@@ -184,6 +193,19 @@ def order_create(request):
         except (json.JSONDecodeError, ValueError):
             pass
         
+        # Create transactions for the order
+        # Transaction 1: Order payment (single, not system)
+        # Transaction 2 & 3: Transaction fee (dual, system receives)
+        try:
+            process_order_transactions(
+                order=order,
+                vendor=order_user,
+                order_amount=order_amount,
+                transaction_fee=transaction_fee
+            )
+        except Exception as e:
+            logger.error(f'Failed to create order transactions: {str(e)}')
+        
         # Send HIGH PRIORITY FCM to all vendor devices (from FcmToken table)
         if status_val == 'pending':
             try:
@@ -192,7 +214,12 @@ def order_create(request):
                 logger.error(f'Failed to send incoming order FCM: {str(e)}')
 
         serializer = OrderSerializer(order, context={'request': request})
-        return Response({'order': serializer.data}, status=status.HTTP_201_CREATED)
+        return Response({
+            'order': serializer.data,
+            'transaction_fee': transaction_fee,
+            'order_amount': str(order_amount),
+            'total_with_fee': str(total_with_fee)
+        }, status=status.HTTP_201_CREATED)
         
     except Exception as e:
         return Response(

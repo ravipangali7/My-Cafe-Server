@@ -2,7 +2,8 @@ from django.urls import reverse
 from rest_framework import serializers
 from .models import (
     User, Unit, Category, Product, ProductVariant,
-    Order, OrderItem, TransactionHistory, SuperSetting, QRStandOrder, Invoice
+    Order, OrderItem, Transaction, TransactionHistory, SuperSetting, QRStandOrder, Invoice,
+    ShareholderWithdrawal
 )
 
 
@@ -16,6 +17,8 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'name', 'phone', 'country_code', 'logo_url', 'expire_date', 'is_active', 'is_superuser',
             'kyc_status', 'kyc_reject_reason', 'kyc_document_type', 'kyc_document_url',
             'subscription_start_date', 'subscription_end_date',
+            'address', 'ug_client_transaction_id', 'balance', 'due_balance', 
+            'is_shareholder', 'share_percentage',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -230,13 +233,20 @@ class OrderSerializer(serializers.ModelSerializer):
         return None
 
 
-class TransactionHistorySerializer(serializers.ModelSerializer):
-    order_id = serializers.IntegerField(source='order.id', read_only=True)
+class TransactionSerializer(serializers.ModelSerializer):
+    order_id = serializers.IntegerField(source='order.id', read_only=True, allow_null=True)
+    qr_stand_order_id = serializers.IntegerField(source='qr_stand_order.id', read_only=True, allow_null=True)
     user_info = serializers.SerializerMethodField()
     
     class Meta:
-        model = TransactionHistory
-        fields = ['id', 'order', 'order_id', 'user', 'user_info', 'amount', 'status', 'remarks', 'utr', 'vpa', 'payer_name', 'bank_id', 'created_at', 'updated_at']
+        model = Transaction
+        fields = [
+            'id', 'order', 'order_id', 'qr_stand_order', 'qr_stand_order_id',
+            'user', 'user_info', 'amount', 'status', 'remarks', 
+            'utr', 'vpa', 'payer_name', 'bank_id',
+            'transaction_type', 'transaction_category', 'is_system',
+            'created_at', 'updated_at'
+        ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_user_info(self, obj):
@@ -266,12 +276,20 @@ class TransactionHistorySerializer(serializers.ModelSerializer):
         return None
 
 
+# Alias for backward compatibility
+TransactionHistorySerializer = TransactionSerializer
+
+
 class SuperSettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = SuperSetting
         fields = [
             'id', 'expire_duration_month', 'per_qr_stand_price', 
-            'subscription_fee_per_month', 'created_at', 'updated_at'
+            'subscription_fee_per_month',
+            'ug_client_transaction_id', 'per_transaction_fee', 'is_subscription_fee',
+            'due_threshold', 'is_whatsapp_usage', 'whatsapp_per_usage',
+            'share_distribution_day', 'balance',
+            'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
@@ -325,3 +343,87 @@ class QRStandOrderSerializer(serializers.ModelSerializer):
                     vendor_data['logo_url'] = obj.vendor.logo.url
             return vendor_data
         return None
+
+
+class ShareholderSerializer(serializers.ModelSerializer):
+    """Serializer for listing shareholders"""
+    logo_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'name', 'phone', 'country_code', 'logo_url',
+            'balance', 'due_balance', 'is_shareholder', 'share_percentage',
+            'address', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_logo_url(self, obj):
+        request = self.context.get('request')
+        if obj.logo:
+            if request:
+                return request.build_absolute_uri(obj.logo.url)
+            return obj.logo.url
+        if request:
+            return request.build_absolute_uri(reverse('vendor_logo_image', args=[obj.id]))
+        return None
+
+
+class ShareholderWithdrawalSerializer(serializers.ModelSerializer):
+    user_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ShareholderWithdrawal
+        fields = [
+            'id', 'user', 'user_info', 'amount', 'status', 'remarks',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_user_info(self, obj):
+        if obj.user:
+            user_data = {
+                'id': obj.user.id,
+                'name': obj.user.name,
+                'phone': obj.user.phone,
+                'balance': obj.user.balance,
+                'share_percentage': obj.user.share_percentage,
+                'logo_url': None
+            }
+            if obj.user.logo:
+                request = self.context.get('request')
+                if request:
+                    user_data['logo_url'] = request.build_absolute_uri(obj.user.logo.url)
+                else:
+                    user_data['logo_url'] = obj.user.logo.url
+            return user_data
+        return None
+
+
+class VendorDueSerializer(serializers.ModelSerializer):
+    """Serializer for listing vendors with dues"""
+    logo_url = serializers.SerializerMethodField()
+    is_over_threshold = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'name', 'phone', 'country_code', 'logo_url',
+            'balance', 'due_balance', 'is_over_threshold',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_logo_url(self, obj):
+        request = self.context.get('request')
+        if obj.logo:
+            if request:
+                return request.build_absolute_uri(obj.logo.url)
+            return obj.logo.url
+        if request:
+            return request.build_absolute_uri(reverse('vendor_logo_image', args=[obj.id]))
+        return None
+    
+    def get_is_over_threshold(self, obj):
+        threshold = self.context.get('due_threshold', 1000)
+        return obj.due_balance >= threshold

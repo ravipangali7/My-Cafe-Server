@@ -61,6 +61,14 @@ class User(AbstractUser):
     subscription_start_date = models.DateField(null=True, blank=True)
     subscription_end_date = models.DateField(null=True, blank=True)
     
+    # New Balance & Shareholder Fields
+    address = models.CharField(max_length=500, blank=True, default='')
+    ug_client_transaction_id = models.CharField(max_length=255, blank=True, null=True)
+    balance = models.IntegerField(default=0)
+    due_balance = models.IntegerField(default=0)
+    is_shareholder = models.BooleanField(default=False)
+    share_percentage = models.IntegerField(default=0)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -242,27 +250,54 @@ class OrderItem(models.Model):
 
 
 # --------------------
-# Transaction History
+# Transaction
 # --------------------
-class TransactionHistory(models.Model):
+class Transaction(models.Model):
     STATUS_CHOICES = (
         ("pending", "Pending"),
         ("success", "Success"),
         ("failed", "Failed"),
     )
+    
+    TRANSACTION_TYPE_CHOICES = (
+        ("in", "In"),
+        ("out", "Out"),
+    )
+    
+    TRANSACTION_CATEGORY_CHOICES = (
+        ("order", "Order Payment"),
+        ("transaction_fee", "Transaction Fee"),
+        ("subscription_fee", "Subscription Fee"),
+        ("whatsapp_usage", "WhatsApp Usage"),
+        ("qr_stand_order", "QR Stand Order"),
+        ("share_distribution", "Share Distribution"),
+        ("share_withdrawal", "Shareholder Withdrawal"),
+        ("due_paid", "Due Paid"),
+    )
 
     id = models.BigAutoField(primary_key=True)
     order = models.ForeignKey(Order, related_name="transactions", on_delete=models.CASCADE, null=True, blank=True)
+    qr_stand_order = models.ForeignKey('QRStandOrder', related_name="transactions", on_delete=models.CASCADE, null=True, blank=True)
     user = models.ForeignKey(User, related_name="transactions", on_delete=models.DO_NOTHING)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="success")
     remarks = models.TextField(blank=True, null=True)
     utr = models.CharField(max_length=100, blank=True, null=True)
     vpa = models.CharField(max_length=100, blank=True, null=True)
     payer_name = models.CharField(max_length=100, blank=True, null=True)
     bank_id = models.CharField(max_length=100, blank=True, null=True)
+    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPE_CHOICES, default="in")
+    transaction_category = models.CharField(max_length=30, choices=TRANSACTION_CATEGORY_CHOICES, default="order")
+    is_system = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Transaction #{self.id} - {self.transaction_category} - {self.amount}"
+
+
+# Keep TransactionHistory as alias for backward compatibility
+TransactionHistory = Transaction
 
 
 # --------------------
@@ -273,8 +308,22 @@ class SuperSetting(models.Model):
     expire_duration_month = models.PositiveIntegerField()
     per_qr_stand_price = models.PositiveIntegerField(default=0)
     subscription_fee_per_month = models.PositiveIntegerField(default=0)
+    
+    # New Transaction System Fields
+    ug_client_transaction_id = models.CharField(max_length=255, blank=True, null=True)
+    per_transaction_fee = models.IntegerField(default=10)
+    is_subscription_fee = models.BooleanField(default=True)
+    due_threshold = models.IntegerField(default=1000)
+    is_whatsapp_usage = models.BooleanField(default=True)
+    whatsapp_per_usage = models.IntegerField(default=0)
+    share_distribution_day = models.IntegerField(default=7)
+    balance = models.IntegerField(default=0)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"SuperSetting (Balance: {self.balance})"
 
 
 # --------------------
@@ -349,3 +398,29 @@ class OTP(models.Model):
     class Meta:
         verbose_name = "OTP"
         verbose_name_plural = "OTPs"
+
+
+# --------------------
+# Shareholder Withdrawal
+# --------------------
+class ShareholderWithdrawal(models.Model):
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("failed", "Failed"),
+    )
+    
+    id = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(User, related_name="withdrawals", on_delete=models.CASCADE)
+    amount = models.IntegerField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    remarks = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Withdrawal #{self.id} - {self.user.name} - {self.amount}"
+    
+    class Meta:
+        verbose_name = "Shareholder Withdrawal"
+        verbose_name_plural = "Shareholder Withdrawals"

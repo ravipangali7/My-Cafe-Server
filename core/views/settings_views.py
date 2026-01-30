@@ -5,7 +5,7 @@ from django.db.models import Count, Sum, Q, Avg
 from django.utils import timezone
 from datetime import timedelta, date, datetime
 from decimal import Decimal
-from ..models import Product, Order, Category, TransactionHistory, SuperSetting, OrderItem, User, QRStandOrder
+from ..models import Product, Order, Category, Transaction, TransactionHistory, SuperSetting, OrderItem, User, QRStandOrder
 from ..serializers import SuperSettingSerializer, UserSerializer, TransactionHistorySerializer, QRStandOrderSerializer, OrderSerializer
 
 
@@ -213,6 +213,15 @@ def update_settings(request):
         per_qr_stand_price = data.get('per_qr_stand_price', 0)
         subscription_fee_per_month = data.get('subscription_fee_per_month', 0)
         
+        # New transaction system fields
+        ug_client_transaction_id = data.get('ug_client_transaction_id')
+        per_transaction_fee = data.get('per_transaction_fee', 10)
+        is_subscription_fee = data.get('is_subscription_fee', True)
+        due_threshold = data.get('due_threshold', 1000)
+        is_whatsapp_usage = data.get('is_whatsapp_usage', True)
+        whatsapp_per_usage = data.get('whatsapp_per_usage', 0)
+        share_distribution_day = data.get('share_distribution_day', 7)
+        
         # Validate optional fields are non-negative integers
         try:
             per_qr_stand_price = int(per_qr_stand_price) if per_qr_stand_price is not None else 0
@@ -240,6 +249,36 @@ def update_settings(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Validate new fields
+        try:
+            per_transaction_fee = int(per_transaction_fee) if per_transaction_fee is not None else 10
+            due_threshold = int(due_threshold) if due_threshold is not None else 1000
+            whatsapp_per_usage = int(whatsapp_per_usage) if whatsapp_per_usage is not None else 0
+            share_distribution_day = int(share_distribution_day) if share_distribution_day is not None else 7
+            
+            # Handle boolean fields
+            if isinstance(is_subscription_fee, str):
+                is_subscription_fee = is_subscription_fee.lower() in ('true', '1', 'yes')
+            else:
+                is_subscription_fee = bool(is_subscription_fee) if is_subscription_fee is not None else True
+                
+            if isinstance(is_whatsapp_usage, str):
+                is_whatsapp_usage = is_whatsapp_usage.lower() in ('true', '1', 'yes')
+            else:
+                is_whatsapp_usage = bool(is_whatsapp_usage) if is_whatsapp_usage is not None else True
+                
+            # Validate share_distribution_day is between 1-28
+            if share_distribution_day < 1 or share_distribution_day > 28:
+                return Response(
+                    {'error': 'share_distribution_day must be between 1 and 28'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except (ValueError, TypeError) as e:
+            return Response(
+                {'error': f'Invalid field value: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         # Update or create settings
         # Use defaults parameter to provide required fields when creating
         setting, created = SuperSetting.objects.get_or_create(
@@ -247,7 +286,14 @@ def update_settings(request):
             defaults={
                 'expire_duration_month': expire_duration_month,
                 'per_qr_stand_price': per_qr_stand_price,
-                'subscription_fee_per_month': subscription_fee_per_month
+                'subscription_fee_per_month': subscription_fee_per_month,
+                'ug_client_transaction_id': ug_client_transaction_id,
+                'per_transaction_fee': per_transaction_fee,
+                'is_subscription_fee': is_subscription_fee,
+                'due_threshold': due_threshold,
+                'is_whatsapp_usage': is_whatsapp_usage,
+                'whatsapp_per_usage': whatsapp_per_usage,
+                'share_distribution_day': share_distribution_day,
             }
         )
         # #region agent log
@@ -260,6 +306,14 @@ def update_settings(request):
             setting.expire_duration_month = expire_duration_month
             setting.per_qr_stand_price = per_qr_stand_price
             setting.subscription_fee_per_month = subscription_fee_per_month
+            setting.ug_client_transaction_id = ug_client_transaction_id
+            setting.per_transaction_fee = per_transaction_fee
+            setting.is_subscription_fee = is_subscription_fee
+            setting.due_threshold = due_threshold
+            setting.is_whatsapp_usage = is_whatsapp_usage
+            setting.whatsapp_per_usage = whatsapp_per_usage
+            setting.share_distribution_day = share_distribution_day
+            # Note: balance is NOT updated through this API - only through transactions
         # #region agent log
         with open(r'c:\CODE\My_Cafe\.cursor\debug.log', 'a') as f:
             f.write(json.dumps({'sessionId':'debug-session','runId':'run1','hypothesisId':'C','location':'settings_views.py:256','message':'Values before save','data':{'expire_duration_month':setting.expire_duration_month,'per_qr_stand_price':setting.per_qr_stand_price,'subscription_fee_per_month':setting.subscription_fee_per_month,'created':created},'timestamp':int(timezone.now().timestamp()*1000)})+'\n')

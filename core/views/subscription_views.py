@@ -2,11 +2,15 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 import json
+import logging
 from datetime import date, timedelta
 from django.utils import timezone
 from django.db.models import Q
-from ..models import User, SuperSetting, TransactionHistory
+from ..models import User, SuperSetting, Transaction, TransactionHistory
 from ..serializers import UserSerializer, TransactionHistorySerializer
+from ..utils.transaction_helpers import process_subscription_payment
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])
@@ -182,23 +186,31 @@ def subscription_subscribe(request):
         user.is_active = True
         user.save()
         
-        # Create transaction record for subscription payment
-        # Note: TransactionHistory.order is now nullable to support subscription payments
-        transaction = TransactionHistory.objects.create(
-            order=None,  # Subscription doesn't have an order
-            user=user,
-            amount=payment_amount,
-            status='success',
-            remarks=f'Subscription payment for {duration_months} month(s)',
-            utr=payment_transaction_id
-        )
+        # Create dual transaction for subscription payment
+        # User pays OUT, System receives IN
+        payment_data = {}
+        if payment_transaction_id:
+            payment_data['utr'] = payment_transaction_id
+        
+        try:
+            txn_user, txn_system = process_subscription_payment(
+                user=user,
+                amount=payment_amount,
+                months=int(duration_months),
+                payment_data=payment_data if payment_data else None
+            )
+            transaction_id = txn_user.id
+            logger.info(f'Created subscription transactions for user {user.id}')
+        except Exception as e:
+            logger.error(f'Failed to create subscription transactions: {str(e)}')
+            transaction_id = None
         
         serializer = UserSerializer(user, context={'request': request})
         return Response({
             'message': 'Subscription activated successfully',
             'subscription_start_date': start_date.isoformat(),
             'subscription_end_date': new_end_date.isoformat(),
-            'transaction_id': transaction.id,
+            'transaction_id': transaction_id,
             'user': serializer.data
         }, status=status.HTTP_200_OK)
         
@@ -252,8 +264,9 @@ def subscription_payment_success(request):
             end_date = today
         
         # Add months
+        months = int(duration_months) if duration_months else 1
         year = end_date.year
-        month = end_date.month + int(duration_months) if duration_months else 1
+        month = end_date.month + months
         
         while month > 12:
             month -= 12
@@ -274,6 +287,20 @@ def subscription_payment_success(request):
         user.expire_date = new_end_date  # Also update expire_date to match subscription_end_date
         user.is_active = True
         user.save()
+        
+        # Create dual transaction for subscription payment
+        payment_data = {'utr': payment_transaction_id}
+        
+        try:
+            txn_user, txn_system = process_subscription_payment(
+                user=user,
+                amount=payment_amount or 0,
+                months=months,
+                payment_data=payment_data
+            )
+            logger.info(f'Created subscription transactions for user {user.id}')
+        except Exception as e:
+            logger.error(f'Failed to create subscription transactions: {str(e)}')
         
         serializer = UserSerializer(user, context={'request': request})
         return Response({
@@ -300,12 +327,14 @@ def subscription_transactions(request):
         )
     
     try:
-        # Get subscription-related transactions (where order is None and remarks contain 'Subscription')
-        transactions = TransactionHistory.objects.filter(
+        # Get subscription-related transactions 
+        # Filter by transaction_category = 'subscription_fee' OR legacy (order is None and remarks contain 'Subscription')
+        transactions = Transaction.objects.filter(
             user=request.user,
-            order__isnull=True
+            is_system=False  # Only show user's transactions, not system records
         ).filter(
-            Q(remarks__icontains='Subscription') | Q(remarks__icontains='subscription')
+            Q(transaction_category='subscription_fee') |
+            (Q(order__isnull=True) & (Q(remarks__icontains='Subscription') | Q(remarks__icontains='subscription')))
         ).order_by('-created_at')
         
         serializer = TransactionHistorySerializer(transactions, many=True, context={'request': request})
@@ -334,12 +363,13 @@ def subscription_history(request):
         user = request.user
         today = date.today()
         
-        # Get subscription transactions
-        transactions = TransactionHistory.objects.filter(
+        # Get subscription transactions (user's transactions, not system)
+        transactions = Transaction.objects.filter(
             user=user,
-            order__isnull=True
+            is_system=False
         ).filter(
-            Q(remarks__icontains='Subscription') | Q(remarks__icontains='subscription')
+            Q(transaction_category='subscription_fee') |
+            (Q(order__isnull=True) & (Q(remarks__icontains='Subscription') | Q(remarks__icontains='subscription')))
         ).order_by('created_at')
         
         # Build history timeline

@@ -3,8 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db.models import Q
 from django.core.paginator import Paginator
-from ..models import TransactionHistory
-from ..serializers import TransactionHistorySerializer
+from ..models import Transaction, TransactionHistory
+from ..serializers import TransactionSerializer, TransactionHistorySerializer
 
 
 @api_view(['GET'])
@@ -26,16 +26,21 @@ def transaction_list(request):
         start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
         
+        # New filters
+        transaction_type = request.GET.get('transaction_type')
+        transaction_category = request.GET.get('transaction_category')
+        is_system = request.GET.get('is_system')
+        
         # Filter by user - superusers can see all transactions and filter by user_id
         if request.user.is_superuser:
-            queryset = TransactionHistory.objects.all()
+            queryset = Transaction.objects.all()
             if user_id:
                 try:
                     queryset = queryset.filter(user_id=int(user_id))
                 except ValueError:
                     pass
         else:
-            queryset = TransactionHistory.objects.filter(user=request.user)
+            queryset = Transaction.objects.filter(user=request.user)
         
         # Apply filters
         if status_filter:
@@ -47,6 +52,19 @@ def transaction_list(request):
         if end_date:
             queryset = queryset.filter(created_at__lte=end_date)
         
+        # Apply new filters
+        if transaction_type:
+            queryset = queryset.filter(transaction_type=transaction_type)
+        
+        if transaction_category:
+            queryset = queryset.filter(transaction_category=transaction_category)
+        
+        if is_system is not None and is_system != '':
+            if is_system.lower() in ('true', '1', 'yes'):
+                queryset = queryset.filter(is_system=True)
+            elif is_system.lower() in ('false', '0', 'no'):
+                queryset = queryset.filter(is_system=False)
+        
         # Apply search
         if search:
             queryset = queryset.filter(
@@ -55,20 +73,20 @@ def transaction_list(request):
             )
         
         # Select related for performance
-        queryset = queryset.select_related('order').order_by('-created_at')
+        queryset = queryset.select_related('order', 'qr_stand_order').order_by('-created_at')
         
         # Paginate
         paginator = Paginator(queryset, page_size)
         total_pages = paginator.num_pages
         
-        if page > total_pages:
+        if page > total_pages and total_pages > 0:
             page = total_pages
         if page < 1:
             page = 1
         
         page_obj = paginator.get_page(page)
         
-        serializer = TransactionHistorySerializer(page_obj.object_list, many=True, context={'request': request})
+        serializer = TransactionSerializer(page_obj.object_list, many=True, context={'request': request})
         
         return Response({
             'data': serializer.data,
@@ -97,12 +115,12 @@ def transaction_detail(request, id):
     try:
         # Superusers can access any transaction, regular users only their own
         if request.user.is_superuser:
-            transaction = TransactionHistory.objects.select_related('order').get(id=id)
+            transaction = Transaction.objects.select_related('order', 'qr_stand_order').get(id=id)
         else:
-            transaction = TransactionHistory.objects.select_related('order').get(id=id, user=request.user)
-        serializer = TransactionHistorySerializer(transaction, context={'request': request})
+            transaction = Transaction.objects.select_related('order', 'qr_stand_order').get(id=id, user=request.user)
+        serializer = TransactionSerializer(transaction, context={'request': request})
         return Response({'transaction': serializer.data}, status=status.HTTP_200_OK)
-    except TransactionHistory.DoesNotExist:
+    except Transaction.DoesNotExist:
         return Response(
             {'error': 'Transaction not found'},
             status=status.HTTP_404_NOT_FOUND

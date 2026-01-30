@@ -54,6 +54,9 @@ from core.views.subscription_views import subscription_status, subscription_plan
 from core.views.qr_stand_views import qr_stand_order_list, qr_stand_order_create, qr_stand_order_detail, qr_stand_order_update, qr_stand_order_delete
 from core.views.qr_views import qr_generate, qr_download_pdf, qr_card_download_png, qr_card_download_pdf
 from core.views.invoice_views import invoice_generate, invoice_download
+from core.views.shareholders_views import shareholders_list, shareholder_detail, shareholder_update
+from core.views.withdrawals_views import withdrawals_list, withdrawal_create, withdrawal_detail, withdrawal_approve, withdrawal_reject
+from core.views.dues_views import dues_list, due_detail, due_pay
 
 urlpatterns = [
     
@@ -176,6 +179,23 @@ urlpatterns = [
     # Menu endpoints (public)
     path('api/menu/<str:vendor_phone>/', menu_by_vendor_phone, name='menu_by_vendor_phone'),
     path('api/public/vendor/<str:vendor_phone>/', vendor_public_by_phone, name='vendor_public_by_phone'),
+    
+    # Shareholders endpoints
+    path('api/shareholders/', shareholders_list, name='shareholders_list'),
+    path('api/shareholders/<int:id>/', shareholder_detail, name='shareholder_detail'),
+    path('api/shareholders/<int:id>/update/', shareholder_update, name='shareholder_update'),
+    
+    # Withdrawals endpoints
+    path('api/withdrawals/', withdrawals_list, name='withdrawals_list'),
+    path('api/withdrawals/create/', withdrawal_create, name='withdrawal_create'),
+    path('api/withdrawals/<int:id>/', withdrawal_detail, name='withdrawal_detail'),
+    path('api/withdrawals/<int:id>/approve/', withdrawal_approve, name='withdrawal_approve'),
+    path('api/withdrawals/<int:id>/reject/', withdrawal_reject, name='withdrawal_reject'),
+    
+    # Dues endpoints
+    path('api/dues/', dues_list, name='dues_list'),
+    path('api/dues/<int:id>/', due_detail, name='due_detail'),
+    path('api/dues/pay/', due_pay, name='due_pay'),
     
 ]
 

@@ -4,9 +4,13 @@ from rest_framework import status
 from django.db.models import Q
 from django.core.paginator import Paginator
 import json
+import logging
 from decimal import Decimal
 from ..models import QRStandOrder, User, SuperSetting
 from ..serializers import QRStandOrderSerializer
+from ..utils.transaction_helpers import process_qr_stand_payment
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])
@@ -243,6 +247,9 @@ def qr_stand_order_update(request, id):
         else:
             data = request.POST
         
+        # Track old payment status for transaction creation
+        old_payment_status = order.payment_status
+        
         # Update fields if provided
         if 'order_status' in data:
             order_status = data.get('order_status')
@@ -268,6 +275,26 @@ def qr_stand_order_update(request, id):
                 pass  # Ignore invalid quantity
         
         order.save()
+        
+        # Create dual transactions when payment_status changes to 'paid'
+        if order.payment_status == 'paid' and old_payment_status != 'paid':
+            try:
+                # Get payment data if provided
+                payment_data = {}
+                if 'utr' in data:
+                    payment_data['utr'] = data.get('utr')
+                if 'vpa' in data:
+                    payment_data['vpa'] = data.get('vpa')
+                if 'payer_name' in data:
+                    payment_data['payer_name'] = data.get('payer_name')
+                if 'bank_id' in data:
+                    payment_data['bank_id'] = data.get('bank_id')
+                
+                # Process QR stand payment - creates dual transactions and updates system balance
+                process_qr_stand_payment(order, payment_data if payment_data else None)
+                logger.info(f'Created transactions for QR stand order #{order.id}')
+            except Exception as e:
+                logger.error(f'Failed to create QR stand order transactions: {str(e)}')
         
         serializer = QRStandOrderSerializer(order, context={'request': request})
         return Response({

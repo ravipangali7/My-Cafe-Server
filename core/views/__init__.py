@@ -9,3 +9,6 @@ from .settings_views import *
 from .stats_views import *
 from .report_views import *
 from .menu_views import *
+from .shareholders_views import *
+from .withdrawals_views import *
+from .dues_views import *
