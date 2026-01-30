@@ -22,6 +22,7 @@ from django.conf.urls.static import static
 from core.views import (
     # Auth views
     login, register, logout, get_user, update_user, get_fcm_tokens, save_fcm_token, save_fcm_token_by_phone,
+    forgot_password, verify_otp, reset_password,
     # Dashboard
     dashboard_stats, vendor_dashboard_data, super_admin_dashboard_data,
     # Vendor views
@@ -58,13 +59,18 @@ urlpatterns = [
     
     # Auth endpoints
     path('api/auth/login/', login, name='login'),
-    # Register endpoint removed - registration now handled through vendor management
+    path('api/auth/register/', register, name='register'),
     path('api/auth/logout/', logout, name='logout'),
     path('api/auth/user/', get_user, name='get_user'),
     path('api/auth/user/update/', update_user, name='update_user'),
     path('api/auth/user/fcm-tokens/', get_fcm_tokens, name='get_fcm_tokens'),
     path('api/auth/user/fcm-token/', save_fcm_token, name='save_fcm_token'),
     path('api/fcm-token-by-phone/', save_fcm_token_by_phone, name='save_fcm_token_by_phone'),
+    
+    # Password reset endpoints
+    path('api/auth/forgot-password/', forgot_password, name='forgot_password'),
+    path('api/auth/verify-otp/', verify_otp, name='verify_otp'),
+    path('api/auth/reset-password/', reset_password, name='reset_password'),
     
     # Dashboard endpoints
     path('api/dashboard/stats', dashboard_stats, name='dashboard_stats'),  # No trailing slash to avoid redirect

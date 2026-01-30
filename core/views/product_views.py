@@ -27,6 +27,8 @@ def product_list(request):
         category_id = request.GET.get('category_id')
         is_active = request.GET.get('is_active')
         product_type = request.GET.get('type')
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
         
         # Filter by user - superusers can see all products and filter by user_id
         if request.user.is_superuser:
@@ -57,6 +59,12 @@ def product_list(request):
             queryset = queryset.filter(
                 Q(name__icontains=search) | Q(category__name__icontains=search)
             )
+        
+        # Apply date filters
+        if start_date:
+            queryset = queryset.filter(created_at__date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(created_at__date__lte=end_date)
         
         # Select related and prefetch for performance
         queryset = queryset.select_related('category').prefetch_related('variants__unit').order_by('-created_at')

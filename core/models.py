@@ -32,6 +32,7 @@ class User(AbstractUser):
     id = models.BigAutoField(primary_key=True)
     name = models.CharField(max_length=100)
     phone = models.CharField(max_length=15, unique=True)
+    country_code = models.CharField(max_length=5, default='91')
     logo = models.ImageField(upload_to="logos/", blank=True, null=True)
     expire_date = models.DateField(null=True, blank=True)
     token = models.CharField(max_length=500, null=True, blank=True)
@@ -209,6 +210,7 @@ class Order(models.Model):
     name = models.CharField(max_length=100)
     user = models.ForeignKey(User, related_name="orders", on_delete=models.DO_NOTHING)
     phone = models.CharField(max_length=15)
+    country_code = models.CharField(max_length=5, default='91')
     table_no = models.CharField(max_length=10)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     payment_status = models.CharField(
@@ -327,3 +329,23 @@ class Invoice(models.Model):
 
     def __str__(self):
         return f"Invoice #{self.invoice_number} - Order #{self.order.id}"
+
+
+# --------------------
+# OTP for Password Reset
+# --------------------
+class OTP(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    phone = models.CharField(max_length=15)
+    country_code = models.CharField(max_length=5, default='91')
+    otp_code = models.CharField(max_length=6)
+    is_used = models.BooleanField(default=False)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"OTP for {self.country_code}{self.phone}"
+    
+    class Meta:
+        verbose_name = "OTP"
+        verbose_name_plural = "OTPs"

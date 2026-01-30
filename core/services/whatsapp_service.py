@@ -11,14 +11,16 @@ logger = logging.getLogger(__name__)
 MSG91_WHATSAPP_API_URL = 'https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/'
 
 
-def format_phone_number(phone: str) -> str:
+def format_phone_number(phone: str, country_code: str = None) -> str:
     """
     Format phone number with country code.
+    - If country_code is provided, use it directly
     - If phone already starts with valid prefix (977, 91, +91, +977, 00977, 0091), use as-is
     - Otherwise, add 91 (India) prefix
     
     Args:
         phone: Phone number string
+        country_code: Optional country code to prepend (e.g., '91', '977')
     
     Returns:
         Formatted phone number with country code
@@ -28,6 +30,14 @@ def format_phone_number(phone: str) -> str:
     
     # Strip whitespace
     phone = phone.strip()
+    
+    # If country_code is explicitly provided, use it
+    if country_code:
+        # Remove any special characters from phone, keep only digits
+        phone = ''.join(c for c in phone if c.isdigit())
+        # Ensure country_code is clean (digits only)
+        country_code = ''.join(c for c in country_code if c.isdigit())
+        return country_code + phone
     
     # Check if phone already has a valid country code prefix (before removing special chars)
     valid_prefixes = ('+977', '+91', '00977', '0091', '977', '91')
@@ -149,9 +159,12 @@ def send_order_bill_whatsapp(order, invoice_pdf_url: str) -> bool:
     Returns:
         bool: True if at least one message was sent successfully, False otherwise
     """
-    # Get and format phone numbers
-    customer_phone = format_phone_number(order.phone)
-    vendor_phone = format_phone_number(order.user.phone) if order.user else ''
+    # Get and format phone numbers using stored country codes
+    customer_country_code = getattr(order, 'country_code', None) or '91'
+    customer_phone = format_phone_number(order.phone, customer_country_code)
+    
+    vendor_country_code = getattr(order.user, 'country_code', None) if order.user else '91'
+    vendor_phone = format_phone_number(order.user.phone, vendor_country_code) if order.user else ''
     
     # Validate phone numbers
     if not customer_phone and not vendor_phone:

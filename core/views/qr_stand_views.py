@@ -26,6 +26,8 @@ def qr_stand_order_list(request):
         vendor_id = request.GET.get('vendor_id')
         order_status = request.GET.get('order_status')
         payment_status = request.GET.get('payment_status')
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
         
         # Filter by user - superusers can see all orders and filter by vendor_id
         if request.user.is_superuser:
@@ -51,6 +53,12 @@ def qr_stand_order_list(request):
             queryset = queryset.filter(
                 Q(vendor__name__icontains=search) | Q(vendor__phone__icontains=search)
             )
+        
+        # Apply date filters
+        if start_date:
+            queryset = queryset.filter(created_at__date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(created_at__date__lte=end_date)
         
         # Order by created_at
         queryset = queryset.order_by('-created_at')

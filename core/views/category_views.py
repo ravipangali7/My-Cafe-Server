@@ -23,6 +23,8 @@ def category_list(request):
         page = int(request.GET.get('page', 1))
         page_size = int(request.GET.get('page_size', 10))
         user_id = request.GET.get('user_id')
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
         
         # Filter by user - superusers can see all categories and filter by user_id
         if request.user.is_superuser:
@@ -38,6 +40,12 @@ def category_list(request):
         # Apply search
         if search:
             queryset = queryset.filter(name__icontains=search)
+        
+        # Apply date filters
+        if start_date:
+            queryset = queryset.filter(created_at__date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(created_at__date__lte=end_date)
         
         # Order by created_at
         queryset = queryset.order_by('-created_at')

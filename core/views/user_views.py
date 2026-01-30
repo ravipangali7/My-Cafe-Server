@@ -17,6 +17,7 @@ def login(request):
             data = request.POST
         phone = data.get('phone')
         password = data.get('password')
+        country_code = data.get('country_code', '91')  # Default to India
         
         if not phone or not password:
             return Response(
@@ -46,6 +47,11 @@ def login(request):
         request.session.modified = True
         # Explicitly save the session to ensure cookie is set
         request.session.save()
+        
+        # Update country_code if provided (in case user changed it during login)
+        if country_code and user.country_code != country_code:
+            user.country_code = country_code
+            user.save(update_fields=['country_code'])
         
         # Check KYC status
         kyc_status = user.kyc_status
@@ -100,6 +106,7 @@ def register(request):
         phone = data.get('phone')
         password = data.get('password')
         email = data.get('email', '')
+        country_code = data.get('country_code', '91')  # Default to India
         
         if not name or not phone or not password:
             return Response(
@@ -120,7 +127,8 @@ def register(request):
             phone=phone,
             name=name,
             email=email if email else f"{phone}@cafe.local",
-            password=password
+            password=password,
+            country_code=country_code
         )
         
         # Login the user
@@ -207,6 +215,8 @@ def update_user(request):
                 user.is_active = is_active_value.lower() in ('true', '1', 'yes')
             else:
                 user.is_active = bool(is_active_value) if is_active_value is not None else True
+        if 'country_code' in data:
+            user.country_code = data.get('country_code')
         
         # Handle logo file upload
         if 'logo' in request.FILES:
@@ -375,6 +385,163 @@ def save_fcm_token_by_phone(request):
             'token_id': fcm_token_obj.id,
             'user_phone': user.phone
         }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+def forgot_password(request):
+    """
+    Request OTP for password reset.
+    Sends OTP to user's WhatsApp.
+    """
+    try:
+        if request.content_type and 'application/json' in request.content_type:
+            data = json.loads(request.body)
+        else:
+            data = request.POST
+        
+        phone = data.get('phone')
+        country_code = data.get('country_code', '91')
+        
+        if not phone:
+            return Response(
+                {'error': 'Phone number is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if user exists
+        if not User.objects.filter(phone=phone).exists():
+            return Response(
+                {'error': 'No account found with this phone number'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Generate and send OTP
+        from ..services.otp_service import generate_and_send_otp
+        success, message = generate_and_send_otp(phone, country_code)
+        
+        if success:
+            return Response({
+                'message': message,
+                'phone': phone,
+                'country_code': country_code
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response(
+                {'error': message},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+def verify_otp(request):
+    """
+    Verify OTP for password reset.
+    """
+    try:
+        if request.content_type and 'application/json' in request.content_type:
+            data = json.loads(request.body)
+        else:
+            data = request.POST
+        
+        phone = data.get('phone')
+        country_code = data.get('country_code', '91')
+        otp_code = data.get('otp')
+        
+        if not phone or not otp_code:
+            return Response(
+                {'error': 'Phone number and OTP are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify OTP
+        from ..services.otp_service import verify_otp as verify_otp_service
+        success, message = verify_otp_service(phone, country_code, otp_code)
+        
+        if success:
+            return Response({
+                'message': message,
+                'verified': True,
+                'phone': phone,
+                'country_code': country_code
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response(
+                {'error': message, 'verified': False},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+def reset_password(request):
+    """
+    Reset user password after OTP verification.
+    """
+    try:
+        if request.content_type and 'application/json' in request.content_type:
+            data = json.loads(request.body)
+        else:
+            data = request.POST
+        
+        phone = data.get('phone')
+        country_code = data.get('country_code', '91')
+        otp_code = data.get('otp')
+        new_password = data.get('new_password')
+        
+        if not phone or not otp_code or not new_password:
+            return Response(
+                {'error': 'Phone, OTP, and new password are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if len(new_password) < 6:
+            return Response(
+                {'error': 'Password must be at least 6 characters'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify OTP first
+        from ..services.otp_service import verify_otp as verify_otp_service
+        success, message = verify_otp_service(phone, country_code, otp_code)
+        
+        if not success:
+            return Response(
+                {'error': message},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find user and reset password
+        try:
+            user = User.objects.get(phone=phone)
+            user.set_password(new_password)
+            user.save(update_fields=['password'])
+            
+            return Response({
+                'message': 'Password reset successfully. You can now login with your new password.'
+            }, status=status.HTTP_200_OK)
+            
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
         
     except Exception as e:
         return Response(
