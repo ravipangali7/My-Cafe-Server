@@ -44,10 +44,14 @@ QR_CONTAINER_PADDING = 8
 QR_CONTAINER_BORDER_WIDTH = 3
 QR_CONTAINER_RADIUS = 8
 
+# Scan & Order Now text (call to action above QR code)
+SCAN_ORDER_FONT_SIZE = 16
+SCAN_ORDER_MARGIN_BOTTOM = 12  # mb-3 equivalent
+
 # Spacing (px) - from React mb-4, mb-0.5, mt-4 etc.
 LOGO_MARGIN_BOTTOM = 16   # mb-4
 TITLE_MARGIN_BOTTOM = 2   # mb-0.5
-SUBTITLE_MARGIN_BOTTOM = 16  # mb-4
+SUBTITLE_MARGIN_BOTTOM = 12  # mb-3 (updated to match React)
 FOOTER_MARGIN_TOP = 16    # mt-4
 
 

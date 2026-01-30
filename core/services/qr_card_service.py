@@ -29,6 +29,8 @@ from .qr_card_constants import (
     QR_FG,
     QR_BG,
     QR_MODULE_SIZE,
+    SCAN_ORDER_FONT_SIZE,
+    SCAN_ORDER_MARGIN_BOTTOM,
     SUBTITLE_FONT_SIZE,
     SUBTITLE_MARGIN_BOTTOM,
     TITLE_FONT_SIZE,
@@ -142,6 +144,7 @@ def _build_card_image_impl(vendor, menu_url: str) -> Image.Image:
     logo_block = LOGO_SIZE + LOGO_BORDER_WIDTH * 2
     title_h = TITLE_FONT_SIZE + 4
     subtitle_h = SUBTITLE_FONT_SIZE + 4
+    scan_order_h = SCAN_ORDER_FONT_SIZE + 4
     qr_inner = QR_MODULE_SIZE
     qr_block_h = QR_CONTAINER_PADDING * 2 + qr_inner + QR_CONTAINER_BORDER_WIDTH * 2
     footer_h = FOOTER_FONT_SIZE + 4
@@ -154,6 +157,8 @@ def _build_card_image_impl(vendor, menu_url: str) -> Image.Image:
         + TITLE_MARGIN_BOTTOM
         + subtitle_h
         + SUBTITLE_MARGIN_BOTTOM
+        + scan_order_h
+        + SCAN_ORDER_MARGIN_BOTTOM
         + qr_block_h
         + FOOTER_MARGIN_TOP
         + footer_h
@@ -197,6 +202,18 @@ def _build_card_image_impl(vendor, menu_url: str) -> Image.Image:
     sub_x = (CARD_WIDTH - tw) // 2
     draw.text((sub_x, y), sub_text, fill=(255, 255, 255), font=sub_font)
     y += subtitle_h + SUBTITLE_MARGIN_BOTTOM
+
+    # Scan & Order Now - call to action text in gold
+    scan_order_font = _load_font(SCAN_ORDER_FONT_SIZE, bold=True)
+    scan_order_text = "Scan & Order Now"
+    try:
+        bbox = draw.textbbox((0, 0), scan_order_text, font=scan_order_font)
+        tw = bbox[2] - bbox[0]
+    except (TypeError, AttributeError):
+        tw = len(scan_order_text) * 10
+    scan_order_x = (CARD_WIDTH - tw) // 2
+    draw.text((scan_order_x, y), scan_order_text, fill=gold_rgb, font=scan_order_font)
+    y += scan_order_h + SCAN_ORDER_MARGIN_BOTTOM
 
     qr_container_w = QR_CONTAINER_PADDING * 2 + QR_MODULE_SIZE + QR_CONTAINER_BORDER_WIDTH * 2
     qr_container_h = qr_block_h
