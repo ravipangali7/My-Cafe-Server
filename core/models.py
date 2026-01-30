@@ -193,6 +193,8 @@ class Order(models.Model):
     STATUS_CHOICES = (
         ("pending", "Pending"),
         ("accepted", "Accepted"),
+        ("running", "Running"),
+        ("ready", "Ready"),
         ("rejected", "Rejected"),
         ("completed", "Completed"),
     )

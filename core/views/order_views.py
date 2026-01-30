@@ -317,6 +317,14 @@ def order_edit(request, id):
                         'title': 'Order Accepted',
                         'body': f'Your Order #{order.id} has been accepted and is being prepared'
                     },
+                    'running': {
+                        'title': 'Order In Progress',
+                        'body': f'Your Order #{order.id} is now being prepared in the kitchen'
+                    },
+                    'ready': {
+                        'title': 'Order Ready',
+                        'body': f'Your Order #{order.id} is ready! Please collect from table {order.table_no}'
+                    },
                     'rejected': {
                         'title': 'Order Rejected',
                         'body': f'Your Order #{order.id} has been rejected' + (f': {order.reject_reason}' if order.reject_reason else '')
