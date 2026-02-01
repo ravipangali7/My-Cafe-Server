@@ -8,7 +8,7 @@ import logging
 from decimal import Decimal
 from ..models import QRStandOrder, User, SuperSetting
 from ..serializers import QRStandOrderSerializer
-from ..utils.transaction_helpers import process_qr_stand_payment
+# NOTE: process_qr_stand_payment is now called in payment_views.py on payment success
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +224,13 @@ def qr_stand_order_detail(request, id):
 
 @api_view(['PUT'])
 def qr_stand_order_update(request, id):
-    """Update QR stand order status"""
+    """
+    Update QR stand order status.
+    
+    NOTE: payment_status can only be set to 'paid' through UG payment flow.
+    Direct payment status updates to 'paid' are not allowed.
+    Use POST /api/payment/initiate/ with payment_type='qr_stand' to make payment.
+    """
     if not request.user.is_authenticated:
         return Response(
             {'error': 'Not authenticated'},
@@ -247,18 +253,31 @@ def qr_stand_order_update(request, id):
         else:
             data = request.POST
         
-        # Track old payment status for transaction creation
-        old_payment_status = order.payment_status
-        
-        # Update fields if provided
+        # Update order_status if provided (for fulfillment tracking)
         if 'order_status' in data:
             order_status = data.get('order_status')
             if order_status in [choice[0] for choice in QRStandOrder.STATUS_CHOICES]:
                 order.order_status = order_status
         
+        # DISABLED: Direct payment_status update to 'paid' is not allowed
+        # Payment status can only be changed to 'paid' through UG payment flow
         if 'payment_status' in data:
             payment_status = data.get('payment_status')
-            if payment_status in [choice[0] for choice in QRStandOrder.PAYMENT_STATUS_CHOICES]:
+            # Only allow setting payment_status to 'failed' or 'pending', NOT 'paid'
+            if payment_status == 'paid':
+                return Response(
+                    {
+                        'error': 'Direct payment status update to "paid" is not allowed.',
+                        'message': 'Payment must be made through UG payment flow.',
+                        'payment_flow': {
+                            'step1': 'POST /api/payment/initiate/ with payment_type="qr_stand", reference_id (qr_stand_order_id), amount, customer_name, customer_mobile',
+                            'step2': 'Redirect user to payment_url received in response',
+                            'step3': 'Payment status updates automatically on successful payment'
+                        }
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            elif payment_status in ['pending', 'failed']:
                 order.payment_status = payment_status
         
         if 'quantity' in data:
@@ -276,25 +295,8 @@ def qr_stand_order_update(request, id):
         
         order.save()
         
-        # Create dual transactions when payment_status changes to 'paid'
-        if order.payment_status == 'paid' and old_payment_status != 'paid':
-            try:
-                # Get payment data if provided
-                payment_data = {}
-                if 'utr' in data:
-                    payment_data['utr'] = data.get('utr')
-                if 'vpa' in data:
-                    payment_data['vpa'] = data.get('vpa')
-                if 'payer_name' in data:
-                    payment_data['payer_name'] = data.get('payer_name')
-                if 'bank_id' in data:
-                    payment_data['bank_id'] = data.get('bank_id')
-                
-                # Process QR stand payment - creates dual transactions and updates system balance
-                process_qr_stand_payment(order, payment_data if payment_data else None)
-                logger.info(f'Created transactions for QR stand order #{order.id}')
-            except Exception as e:
-                logger.error(f'Failed to create QR stand order transactions: {str(e)}')
+        # NOTE: Transactions are NOT created here anymore.
+        # Transactions are created ONLY in payment_views.py on UG payment success.
         
         serializer = QRStandOrderSerializer(order, context={'request': request})
         return Response({

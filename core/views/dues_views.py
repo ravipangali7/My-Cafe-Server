@@ -7,7 +7,7 @@ import json
 import logging
 from ..models import User, SuperSetting
 from ..serializers import VendorDueSerializer
-from ..utils.transaction_helpers import process_due_payment
+# NOTE: process_due_payment is now called in payment_views.py on payment success
 
 logger = logging.getLogger(__name__)
 
@@ -185,117 +185,24 @@ def due_detail(request, id):
 
 @api_view(['POST'])
 def due_pay(request):
-    """Pay vendor dues (creates dual transaction)"""
-    if not request.user.is_authenticated:
-        return Response(
-            {'error': 'Not authenticated'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+    """
+    DISABLED: Direct due payment is no longer allowed.
+    Due payments must be made through UG payment flow.
     
-    try:
-        # Handle both JSON and form-data
-        if request.content_type and 'application/json' in request.content_type:
-            data = json.loads(request.body)
-        else:
-            data = request.POST
-        
-        vendor_id = data.get('vendor_id')
-        amount = data.get('amount')
-        
-        # For non-superusers, they can only pay their own dues
-        if not request.user.is_superuser:
-            vendor_id = request.user.id
-        
-        if not vendor_id:
-            return Response(
-                {'error': 'vendor_id is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        if not amount:
-            return Response(
-                {'error': 'amount is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            amount = int(amount)
-            if amount <= 0:
-                return Response(
-                    {'error': 'amount must be greater than 0'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        except ValueError:
-            return Response(
-                {'error': 'amount must be a valid integer'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get vendor
-        try:
-            vendor = User.objects.get(id=vendor_id)
-        except User.DoesNotExist:
-            return Response(
-                {'error': 'Vendor not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Validate amount equals full due balance (full payment only)
-        if amount != vendor.due_balance:
-            return Response(
-                {'error': f'Full payment required. Amount must be exactly {vendor.due_balance}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get payment data if provided
-        payment_data = {}
-        if 'utr' in data:
-            payment_data['utr'] = data.get('utr')
-        if 'vpa' in data:
-            payment_data['vpa'] = data.get('vpa')
-        if 'payer_name' in data:
-            payment_data['payer_name'] = data.get('payer_name')
-        if 'bank_id' in data:
-            payment_data['bank_id'] = data.get('bank_id')
-        
-        # Process due payment (creates dual transaction, updates balances)
-        # Note: Payment gateway integration would go here
-        try:
-            txn_user, txn_system = process_due_payment(
-                vendor=vendor,
-                amount=amount,
-                payment_data=payment_data if payment_data else None
-            )
-            logger.info(f'Processed due payment of {amount} for vendor {vendor.id}')
-        except Exception as e:
-            logger.error(f'Failed to process due payment: {str(e)}')
-            return Response(
-                {'error': f'Failed to process payment: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        
-        # Refresh vendor from database
-        vendor.refresh_from_db()
-        
-        settings = SuperSetting.objects.first()
-        due_threshold = settings.due_threshold if settings else 1000
-        
-        serializer = VendorDueSerializer(
-            vendor, 
-            context={'request': request, 'due_threshold': due_threshold}
-        )
-        
-        return Response({
-            'message': 'Due payment processed successfully',
-            'vendor': serializer.data,
-            'amount_paid': amount,
-            'remaining_dues': vendor.due_balance,
-            'transaction_id': txn_user.id
-        }, status=status.HTTP_200_OK)
-        
-    except Exception as e:
-        logger.error(f'Error processing due payment: {str(e)}')
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    Use the following flow instead:
+    1. POST /api/payment/initiate/ with payment_type='dues'
+    2. Complete payment on UG gateway
+    3. Due balance will be updated automatically on payment success
+    """
+    return Response(
+        {
+            'error': 'Direct due payment is disabled. Please use UG payment flow.',
+            'message': 'Use POST /api/payment/initiate/ with payment_type="dues" to pay dues.',
+            'payment_flow': {
+                'step1': 'POST /api/payment/initiate/ with payment_type="dues", reference_id (vendor_id), amount, customer_name, customer_mobile',
+                'step2': 'Redirect user to payment_url received in response',
+                'step3': 'Due balance updates automatically on successful payment'
+            }
+        },
+        status=status.HTTP_400_BAD_REQUEST
+    )

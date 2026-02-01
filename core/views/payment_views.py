@@ -11,6 +11,7 @@ from rest_framework import status
 from django.shortcuts import redirect
 from django.conf import settings as django_settings
 from datetime import date
+from decimal import Decimal
 import json
 import logging
 
@@ -302,6 +303,9 @@ def verify_payment(request, txn_id):
             transaction.utr = result['utr']
         if result['vpa']:
             transaction.vpa = result['vpa']
+        # Save customer_name from UG response to payer_name field
+        if result.get('customer_name'):
+            transaction.payer_name = result['customer_name']
         
         # Process based on payment status
         if result['status'] == 'success':
@@ -314,6 +318,32 @@ def verify_payment(request, txn_id):
                 # Update order payment status
                 transaction.order.payment_status = 'paid'
                 transaction.order.save()
+                
+                # Create order transactions only on payment success
+                # Get transaction fee from settings
+                settings = SuperSetting.objects.first()
+                transaction_fee = settings.per_transaction_fee if settings else 10
+                
+                # Calculate order amount (total - transaction fee)
+                order_amount = transaction.amount - Decimal(str(transaction_fee))
+                
+                # Create transactions with payment data from UG response
+                try:
+                    process_order_transactions(
+                        order=transaction.order,
+                        vendor=transaction.user,
+                        order_amount=order_amount,
+                        transaction_fee=transaction_fee,
+                        payment_data={
+                            'utr': transaction.utr,
+                            'vpa': transaction.vpa,
+                            'payer_name': transaction.payer_name
+                        }
+                    )
+                    logger.info(f"Order #{transaction.order.id} transactions created on payment success")
+                except Exception as e:
+                    logger.error(f"Failed to create order transactions: {str(e)}")
+                
                 logger.info(f"Order #{transaction.order.id} marked as paid")
             
             elif payment_type == PAYMENT_TYPE_DUES or payment_type == 'due_paid':
@@ -435,16 +465,43 @@ def payment_callback(request):
                 transaction.utr = result['utr']
             if result['vpa']:
                 transaction.vpa = result['vpa']
+            # Save customer_name from UG response to payer_name field
+            if result.get('customer_name'):
+                transaction.payer_name = result['customer_name']
             
             if result['status'] == 'success':
                 transaction.status = 'success'
                 
-                # Update related entities
-                if transaction.order:
+                # Get payment type for proper handling
+                payment_type = result.get('udf2') or transaction.transaction_category
+                
+                # Update related entities and create transactions
+                if transaction.order and payment_type == PAYMENT_TYPE_ORDER:
                     transaction.order.payment_status = 'paid'
                     transaction.order.save()
+                    
+                    # Create order transactions only on payment success
+                    settings = SuperSetting.objects.first()
+                    transaction_fee = settings.per_transaction_fee if settings else 10
+                    order_amount = transaction.amount - Decimal(str(transaction_fee))
+                    
+                    try:
+                        process_order_transactions(
+                            order=transaction.order,
+                            vendor=transaction.user,
+                            order_amount=order_amount,
+                            transaction_fee=transaction_fee,
+                            payment_data={
+                                'utr': transaction.utr,
+                                'vpa': transaction.vpa,
+                                'payer_name': transaction.payer_name
+                            }
+                        )
+                        logger.info(f"Order #{transaction.order.id} transactions created on payment success")
+                    except Exception as e:
+                        logger.error(f"Failed to create order transactions: {str(e)}")
                 
-                if transaction.qr_stand_order:
+                if transaction.qr_stand_order and payment_type == PAYMENT_TYPE_QR_STAND:
                     transaction.qr_stand_order.payment_status = 'paid'
                     transaction.qr_stand_order.save()
                     
@@ -452,8 +509,6 @@ def payment_callback(request):
                     update_system_balance(int(transaction.amount), 'add')
                 
                 # Handle dues and subscription
-                payment_type = result.get('udf2') or transaction.transaction_category
-                
                 if payment_type == PAYMENT_TYPE_DUES or payment_type == 'due_paid':
                     from ..utils.transaction_helpers import update_user_due_balance, update_system_balance
                     update_user_due_balance(transaction.user, int(transaction.amount), 'subtract')

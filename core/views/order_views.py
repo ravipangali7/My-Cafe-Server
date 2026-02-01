@@ -12,7 +12,7 @@ from ..serializers import OrderSerializer, OrderItemSerializer
 from ..services.fcm_service import send_fcm_notification, send_incoming_order_to_vendor, send_dismiss_incoming_to_vendor
 from ..services.pdf_service import generate_order_invoice
 from ..services.whatsapp_service import send_order_bill_whatsapp
-from ..utils.transaction_helpers import process_order_transactions
+# NOTE: process_order_transactions is now called in payment_views.py on payment success
 
 logger = logging.getLogger(__name__)
 
@@ -189,18 +189,9 @@ def order_create(request):
         except (json.JSONDecodeError, ValueError):
             pass
         
-        # Create transactions for the order
-        # Transaction 1: Order payment (single, not system)
-        # Transaction 2 & 3: Transaction fee (dual, system receives)
-        try:
-            process_order_transactions(
-                order=order,
-                vendor=order_user,
-                order_amount=order_amount,
-                transaction_fee=transaction_fee
-            )
-        except Exception as e:
-            logger.error(f'Failed to create order transactions: {str(e)}')
+        # NOTE: Transactions are NOT created here anymore.
+        # Transactions will be created ONLY after successful UG payment
+        # in payment_views.py verify_payment() or payment_callback()
         
         # Send HIGH PRIORITY FCM to all vendor devices (from FcmToken table)
         if status_val == 'pending':

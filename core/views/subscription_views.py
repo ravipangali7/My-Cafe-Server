@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.db.models import Q
 from ..models import User, SuperSetting, Transaction, TransactionHistory
 from ..serializers import UserSerializer, TransactionHistorySerializer
-from ..utils.transaction_helpers import process_subscription_payment
+# NOTE: process_subscription_payment is now called in payment_views.py on payment success
 
 logger = logging.getLogger(__name__)
 
@@ -125,201 +125,46 @@ def subscription_plans(request):
 
 @api_view(['POST'])
 def subscription_subscribe(request):
-    """Create subscription after payment"""
-    if not request.user.is_authenticated:
-        return Response(
-            {'error': 'Not authenticated'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+    """
+    DISABLED: Direct subscription activation is no longer allowed.
+    Subscription must be purchased through UG payment flow.
     
-    try:
-        # Handle both JSON and form-data
-        if request.content_type and 'application/json' in request.content_type:
-            data = json.loads(request.body)
-        else:
-            data = request.POST
-        
-        plan_id = data.get('plan_id')
-        duration_months = data.get('duration_months')
-        payment_amount = data.get('payment_amount')
-        payment_transaction_id = data.get('payment_transaction_id', '')
-        
-        if not plan_id or not duration_months or not payment_amount:
-            return Response(
-                {'error': 'plan_id, duration_months, and payment_amount are required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        user = request.user
-        today = date.today()
-        
-        # Calculate subscription dates
-        # If user already has a subscription, extend from end date
-        # Otherwise, start from today
-        if user.subscription_end_date and user.subscription_end_date >= today:
-            # Extend existing subscription
-            start_date = user.subscription_start_date or today
-            end_date = user.subscription_end_date
-        else:
-            # New subscription
-            start_date = today
-            end_date = today
-        
-        # Add months to end date
-        year = end_date.year
-        month = end_date.month + int(duration_months)
-        
-        # Handle year overflow
-        while month > 12:
-            month -= 12
-            year += 1
-        
-        # Handle day overflow (e.g., Jan 31 + 1 month = Feb 28/29)
-        from calendar import monthrange
-        last_day = monthrange(year, month)[1]
-        day = min(end_date.day, last_day)
-        
-        try:
-            new_end_date = date(year, month, day)
-        except ValueError:
-            new_end_date = date(year, month, last_day)
-        
-        # Update user subscription
-        user.subscription_start_date = start_date
-        user.subscription_end_date = new_end_date
-        user.expire_date = new_end_date  # Also update expire_date to match subscription_end_date
-        user.is_active = True
-        user.save()
-        
-        # Create dual transaction for subscription payment
-        # User pays OUT, System receives IN
-        payment_data = {}
-        if payment_transaction_id:
-            payment_data['utr'] = payment_transaction_id
-        
-        try:
-            txn_user, txn_system = process_subscription_payment(
-                user=user,
-                amount=payment_amount,
-                months=int(duration_months),
-                payment_data=payment_data if payment_data else None
-            )
-            transaction_id = txn_user.id
-            logger.info(f'Created subscription transactions for user {user.id}')
-        except Exception as e:
-            logger.error(f'Failed to create subscription transactions: {str(e)}')
-            transaction_id = None
-        
-        serializer = UserSerializer(user, context={'request': request})
-        return Response({
-            'message': 'Subscription activated successfully',
-            'subscription_start_date': start_date.isoformat(),
-            'subscription_end_date': new_end_date.isoformat(),
-            'transaction_id': transaction_id,
-            'user': serializer.data
-        }, status=status.HTTP_200_OK)
-        
-    except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    Use the following flow instead:
+    1. POST /api/payment/initiate/ with payment_type='subscription'
+    2. Complete payment on UG gateway
+    3. Subscription will be activated automatically on payment success
+    """
+    return Response(
+        {
+            'error': 'Direct subscription is disabled. Please use UG payment flow.',
+            'message': 'Use POST /api/payment/initiate/ with payment_type="subscription" to subscribe.',
+            'payment_flow': {
+                'step1': 'POST /api/payment/initiate/ with payment_type, reference_id (user_id), amount, customer_name, customer_mobile',
+                'step2': 'Redirect user to payment_url received in response',
+                'step3': 'Subscription activates automatically on successful payment'
+            }
+        },
+        status=status.HTTP_400_BAD_REQUEST
+    )
 
 
 @api_view(['POST'])
 def subscription_payment_success(request):
-    """Handle payment success callback"""
-    if not request.user.is_authenticated:
-        return Response(
-            {'error': 'Not authenticated'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+    """
+    DISABLED: Direct payment success callback is no longer allowed.
+    Payment verification is handled automatically through UG callback/verify endpoints.
     
-    try:
-        # Handle both JSON and form-data
-        if request.content_type and 'application/json' in request.content_type:
-            data = json.loads(request.body)
-        else:
-            data = request.POST
-        
-        payment_transaction_id = data.get('payment_transaction_id')
-        plan_id = data.get('plan_id')
-        duration_months = data.get('duration_months')
-        payment_amount = data.get('payment_amount')
-        
-        if not payment_transaction_id:
-            return Response(
-                {'error': 'payment_transaction_id is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # This endpoint can be used to verify payment and activate subscription
-        # For now, it's similar to subscribe endpoint
-        # In production, you would verify the payment with payment gateway first
-        
-        user = request.user
-        today = date.today()
-        
-        # Calculate subscription dates
-        if user.subscription_end_date and user.subscription_end_date >= today:
-            start_date = user.subscription_start_date or today
-            end_date = user.subscription_end_date
-        else:
-            start_date = today
-            end_date = today
-        
-        # Add months
-        months = int(duration_months) if duration_months else 1
-        year = end_date.year
-        month = end_date.month + months
-        
-        while month > 12:
-            month -= 12
-            year += 1
-        
-        from calendar import monthrange
-        last_day = monthrange(year, month)[1]
-        day = min(end_date.day, last_day)
-        
-        try:
-            new_end_date = date(year, month, day)
-        except ValueError:
-            new_end_date = date(year, month, last_day)
-        
-        # Update user
-        user.subscription_start_date = start_date
-        user.subscription_end_date = new_end_date
-        user.expire_date = new_end_date  # Also update expire_date to match subscription_end_date
-        user.is_active = True
-        user.save()
-        
-        # Create dual transaction for subscription payment
-        payment_data = {'utr': payment_transaction_id}
-        
-        try:
-            txn_user, txn_system = process_subscription_payment(
-                user=user,
-                amount=payment_amount or 0,
-                months=months,
-                payment_data=payment_data
-            )
-            logger.info(f'Created subscription transactions for user {user.id}')
-        except Exception as e:
-            logger.error(f'Failed to create subscription transactions: {str(e)}')
-        
-        serializer = UserSerializer(user, context={'request': request})
-        return Response({
-            'message': 'Payment successful and subscription activated',
-            'subscription_start_date': start_date.isoformat(),
-            'subscription_end_date': new_end_date.isoformat(),
-            'user': serializer.data
-        }, status=status.HTTP_200_OK)
-        
-    except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    The UG payment callback (/api/payment/callback/) and verify endpoint (/api/payment/verify/)
+    automatically handle subscription activation on successful payment.
+    """
+    return Response(
+        {
+            'error': 'Direct payment success callback is disabled.',
+            'message': 'Payment verification is handled automatically through UG payment flow.',
+            'info': 'Use GET /api/payment/verify/{txn_id}/ to check payment status.'
+        },
+        status=status.HTTP_400_BAD_REQUEST
+    )
 
 
 @api_view(['GET'])
