@@ -14,6 +14,7 @@ from datetime import date
 from decimal import Decimal
 import json
 import logging
+import time
 
 from ..models import Transaction, Order, QRStandOrder, User, SuperSetting
 from ..utils.ug_payment import UGPaymentClient
@@ -278,15 +279,33 @@ def verify_payment(request, txn_id):
                 }
             }, status=status.HTTP_200_OK)
         
-        # Check status with UG API
+        # Check status with UG API with retry logic for pending/scanning states
         ug_client = UGPaymentClient()
-        result = ug_client.check_order_status(txn_id, transaction.ug_txn_date)
         
-        if not result['success']:
+        max_retries = 3
+        retry_delay = 2  # seconds
+        result = None
+        
+        for attempt in range(max_retries):
+            result = ug_client.check_order_status(txn_id, transaction.ug_txn_date)
+            
+            logger.info(f"verify_payment attempt {attempt + 1}/{max_retries} for {txn_id}: "
+                       f"success={result['success']}, status={result.get('status', 'N/A')}")
+            
+            # If we got a definitive status (success or failure), break out of retry loop
+            if result['success'] and result['status'] in ['success', 'failure']:
+                break
+            
+            # If still pending/scanning and not last attempt, wait and retry
+            if attempt < max_retries - 1 and result['success'] and result['status'] in ['pending', 'scanning']:
+                logger.info(f"Status is '{result['status']}', retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+        
+        if not result or not result['success']:
             return Response({
                 'success': False,
                 'status': 'unknown',
-                'message': result['message'],
+                'message': result['message'] if result else 'Failed to check status',
                 'transaction': {
                     'id': transaction.id,
                     'amount': str(transaction.amount),
@@ -312,7 +331,14 @@ def verify_payment(request, txn_id):
             transaction.status = 'success'
             
             # Process the actual payment based on type
+            # Resolve payment_type: prefer UDF2 from UG, fallback to transaction_category
             payment_type = result.get('udf2') or transaction.transaction_category
+            
+            # Detailed logging for debugging payment type resolution
+            logger.info(f"Payment type resolution for {txn_id}: "
+                       f"udf2='{result.get('udf2')}', "
+                       f"transaction_category='{transaction.transaction_category}', "
+                       f"resolved_payment_type='{payment_type}'")
             
             if payment_type == PAYMENT_TYPE_ORDER and transaction.order:
                 # Update order payment status
@@ -379,12 +405,18 @@ def verify_payment(request, txn_id):
             
             elif payment_type == PAYMENT_TYPE_QR_STAND and transaction.qr_stand_order:
                 # Update QR stand order payment status
+                logger.info(f"Updating QR Stand Order #{transaction.qr_stand_order.id} payment_status to 'paid'")
                 transaction.qr_stand_order.payment_status = 'paid'
                 transaction.qr_stand_order.save()
                 
                 from ..utils.transaction_helpers import update_system_balance
                 update_system_balance(int(transaction.amount), 'add')
-                logger.info(f"QR Stand Order #{transaction.qr_stand_order.id} marked as paid")
+                logger.info(f"QR Stand Order #{transaction.qr_stand_order.id} marked as paid, system balance updated")
+            else:
+                # Log when no matching payment type handler was found
+                logger.warning(f"No handler matched for payment_type='{payment_type}', "
+                             f"has_order={transaction.order is not None}, "
+                             f"has_qr_stand_order={transaction.qr_stand_order is not None}")
         
         elif result['status'] == 'failure':
             transaction.status = 'failed'
@@ -452,12 +484,32 @@ def payment_callback(request):
             base_url = getattr(django_settings, 'PAYMENT_REDIRECT_BASE_URL', '')
             return redirect(f"{base_url}/payment/status?error=transaction_not_found")
         
-        # Check status with UG API
+        # Check status with UG API with retry logic
+        # UG may return 'pending' or 'scanning' immediately after payment due to race condition
         ug_client = UGPaymentClient()
-        result = ug_client.check_order_status(txn_id, transaction.ug_txn_date)
+        
+        max_retries = 3
+        retry_delay = 2  # seconds
+        result = None
+        
+        for attempt in range(max_retries):
+            result = ug_client.check_order_status(txn_id, transaction.ug_txn_date)
+            
+            logger.info(f"Payment callback attempt {attempt + 1}/{max_retries} for {txn_id}: "
+                       f"success={result['success']}, status={result.get('status', 'N/A')}")
+            
+            # If we got a definitive status (success or failure), break out of retry loop
+            if result['success'] and result['status'] in ['success', 'failure']:
+                logger.info(f"Got definitive status '{result['status']}' for {txn_id}")
+                break
+            
+            # If still pending/scanning and not last attempt, wait and retry
+            if attempt < max_retries - 1:
+                logger.info(f"Status is '{result.get('status', 'unknown')}', retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
         
         # Update transaction status
-        if result['success']:
+        if result and result['success']:
             transaction.ug_status = result['status']
             transaction.ug_remark = result['remark']
             
@@ -473,7 +525,16 @@ def payment_callback(request):
                 transaction.status = 'success'
                 
                 # Get payment type for proper handling
+                # Resolve payment_type: prefer UDF2 from UG, fallback to transaction_category
                 payment_type = result.get('udf2') or transaction.transaction_category
+                
+                # Detailed logging for debugging payment type resolution
+                logger.info(f"[Callback] Payment type resolution for {txn_id}: "
+                           f"udf2='{result.get('udf2')}', "
+                           f"transaction_category='{transaction.transaction_category}', "
+                           f"resolved_payment_type='{payment_type}', "
+                           f"has_order={transaction.order is not None}, "
+                           f"has_qr_stand_order={transaction.qr_stand_order is not None}")
                 
                 # Update related entities and create transactions
                 if transaction.order and payment_type == PAYMENT_TYPE_ORDER:
@@ -502,11 +563,15 @@ def payment_callback(request):
                         logger.error(f"Failed to create order transactions: {str(e)}")
                 
                 if transaction.qr_stand_order and payment_type == PAYMENT_TYPE_QR_STAND:
+                    logger.info(f"[Callback] Updating QR Stand Order #{transaction.qr_stand_order.id} payment_status to 'paid'")
                     transaction.qr_stand_order.payment_status = 'paid'
                     transaction.qr_stand_order.save()
                     
                     from ..utils.transaction_helpers import update_system_balance
                     update_system_balance(int(transaction.amount), 'add')
+                    logger.info(f"[Callback] QR Stand Order #{transaction.qr_stand_order.id} marked as paid, system balance updated")
+                elif payment_type == PAYMENT_TYPE_QR_STAND and not transaction.qr_stand_order:
+                    logger.error(f"[Callback] payment_type is 'qr_stand' but transaction.qr_stand_order is None for {txn_id}")
                 
                 # Handle dues and subscription
                 if payment_type == PAYMENT_TYPE_DUES or payment_type == 'due_paid':
