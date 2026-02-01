@@ -5,7 +5,8 @@ This module provides endpoints for initiating, verifying, and handling
 payment callbacks from the UG Payment Gateway.
 """
 
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import redirect
@@ -460,12 +461,17 @@ def verify_payment(request, txn_id):
 
 
 @api_view(['GET'])
+@authentication_classes([])  # No authentication required - UG gateway calls this
+@permission_classes([AllowAny])  # Allow unauthenticated access
 def payment_callback(request):
     """
     Handle redirect callback from UG Payment Gateway.
     
     This endpoint receives the redirect from UG after payment completion
     and redirects to the frontend payment status page.
+    
+    NOTE: This endpoint must be publicly accessible (no auth) because
+    UG gateway redirects the browser here without any authentication tokens.
     
     Query params (appended by UG gateway):
         - client_txn_id: str (our transaction ID, sent back by UG)
