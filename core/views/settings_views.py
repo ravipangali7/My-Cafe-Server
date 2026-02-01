@@ -149,6 +149,30 @@ def get_settings(request):
         )
 
 
+@api_view(['GET'])
+def get_public_settings(request):
+    """Get public settings (no authentication required) - for menu page to display per_transaction_fee"""
+    try:
+        setting = SuperSetting.objects.first()
+        if setting:
+            return Response({
+                'setting': {
+                    'per_transaction_fee': setting.per_transaction_fee,
+                }
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'setting': {
+                    'per_transaction_fee': 10,  # Default value
+                }
+            }, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
 @api_view(['POST'])
 def update_settings(request):
     """Update super settings"""

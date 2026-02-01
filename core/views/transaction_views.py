@@ -32,6 +32,7 @@ def transaction_list(request):
         is_system = request.GET.get('is_system')
         
         # Filter by user - superusers can see all transactions and filter by user_id
+        # Non-superusers (vendors) should NOT see system transactions (is_system=true)
         if request.user.is_superuser:
             queryset = Transaction.objects.all()
             if user_id:
@@ -40,7 +41,8 @@ def transaction_list(request):
                 except ValueError:
                     pass
         else:
-            queryset = Transaction.objects.filter(user=request.user)
+            # Non-superusers only see their own transactions AND exclude system transactions
+            queryset = Transaction.objects.filter(user=request.user, is_system=False)
         
         # Apply filters
         if status_filter:
@@ -59,7 +61,8 @@ def transaction_list(request):
         if transaction_category:
             queryset = queryset.filter(transaction_category=transaction_category)
         
-        if is_system is not None and is_system != '':
+        # is_system filter only applies to superusers (vendors are already filtered to is_system=False)
+        if request.user.is_superuser and is_system is not None and is_system != '':
             if is_system.lower() in ('true', '1', 'yes'):
                 queryset = queryset.filter(is_system=True)
             elif is_system.lower() in ('false', '0', 'no'):
@@ -113,11 +116,14 @@ def transaction_detail(request, id):
         )
     
     try:
-        # Superusers can access any transaction, regular users only their own
+        # Superusers can access any transaction, regular users only their own (excluding system transactions)
         if request.user.is_superuser:
             transaction = Transaction.objects.select_related('order', 'qr_stand_order').get(id=id)
         else:
-            transaction = Transaction.objects.select_related('order', 'qr_stand_order').get(id=id, user=request.user)
+            # Non-superusers can only view their own non-system transactions
+            transaction = Transaction.objects.select_related('order', 'qr_stand_order').get(
+                id=id, user=request.user, is_system=False
+            )
         serializer = TransactionSerializer(transaction, context={'request': request})
         return Response({'transaction': serializer.data}, status=status.HTTP_200_OK)
     except Transaction.DoesNotExist:

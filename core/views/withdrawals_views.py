@@ -343,3 +343,134 @@ def withdrawal_reject(request, id):
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['PUT', 'PATCH'])
+def withdrawal_update(request, id):
+    """Update a pending withdrawal request (shareholders can update their own, super admins can update any)"""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+    try:
+        withdrawal = ShareholderWithdrawal.objects.get(id=id)
+        
+        # Check permissions - shareholders can only edit their own, superusers can edit any
+        if not request.user.is_superuser and withdrawal.user != request.user:
+            return Response(
+                {'error': 'You do not have permission to update this withdrawal'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Can only update pending withdrawals
+        if withdrawal.status != 'pending':
+            return Response(
+                {'error': f'Cannot update withdrawal with status: {withdrawal.status}. Only pending withdrawals can be updated.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Handle both JSON and form-data
+        if request.content_type and 'application/json' in request.content_type:
+            data = json.loads(request.body)
+        else:
+            data = request.POST
+        
+        # Update amount if provided
+        if 'amount' in data:
+            amount = data.get('amount')
+            try:
+                amount = int(amount)
+                if amount <= 0:
+                    return Response(
+                        {'error': 'amount must be greater than 0'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except ValueError:
+                return Response(
+                    {'error': 'amount must be a valid integer'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if user has sufficient balance (for shareholders, check against their own balance)
+            check_user = withdrawal.user
+            if amount > check_user.balance:
+                return Response(
+                    {'error': f'Insufficient balance. Available: {check_user.balance}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            withdrawal.amount = amount
+        
+        # Update remarks if provided
+        if 'remarks' in data:
+            withdrawal.remarks = data.get('remarks', '')
+        
+        withdrawal.save()
+        
+        serializer = ShareholderWithdrawalSerializer(withdrawal, context={'request': request})
+        
+        return Response({
+            'message': 'Withdrawal updated successfully',
+            'withdrawal': serializer.data
+        }, status=status.HTTP_200_OK)
+        
+    except ShareholderWithdrawal.DoesNotExist:
+        return Response(
+            {'error': 'Withdrawal not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        logger.error(f'Error updating withdrawal: {str(e)}')
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['DELETE'])
+def withdrawal_delete(request, id):
+    """Delete a pending withdrawal request (shareholders can delete their own, super admins can delete any)"""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+    try:
+        withdrawal = ShareholderWithdrawal.objects.get(id=id)
+        
+        # Check permissions - shareholders can only delete their own, superusers can delete any
+        if not request.user.is_superuser and withdrawal.user != request.user:
+            return Response(
+                {'error': 'You do not have permission to delete this withdrawal'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Can only delete pending withdrawals
+        if withdrawal.status != 'pending':
+            return Response(
+                {'error': f'Cannot delete withdrawal with status: {withdrawal.status}. Only pending withdrawals can be deleted.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        withdrawal_id = withdrawal.id
+        withdrawal.delete()
+        
+        return Response({
+            'message': 'Withdrawal deleted successfully',
+            'deleted_id': withdrawal_id
+        }, status=status.HTTP_200_OK)
+        
+    except ShareholderWithdrawal.DoesNotExist:
+        return Response(
+            {'error': 'Withdrawal not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        logger.error(f'Error deleting withdrawal: {str(e)}')
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

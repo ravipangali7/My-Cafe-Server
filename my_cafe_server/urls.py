@@ -38,7 +38,7 @@ from core.views import (
     # Transaction views
     transaction_list, transaction_detail,
     # Settings views
-    get_settings, update_settings, users_stats,
+    get_settings, update_settings, users_stats, get_public_settings,
     # Stats views
     product_stats, order_stats, category_stats, transaction_stats, unit_stats, vendor_stats,
     # Report views
@@ -55,7 +55,7 @@ from core.views.qr_stand_views import qr_stand_order_list, qr_stand_order_create
 from core.views.qr_views import qr_generate, qr_download_pdf, qr_card_download_png, qr_card_download_pdf
 from core.views.invoice_views import invoice_generate, invoice_download
 from core.views.shareholders_views import shareholders_list, shareholder_detail, shareholder_update
-from core.views.withdrawals_views import withdrawals_list, withdrawal_create, withdrawal_detail, withdrawal_approve, withdrawal_reject
+from core.views.withdrawals_views import withdrawals_list, withdrawal_create, withdrawal_detail, withdrawal_approve, withdrawal_reject, withdrawal_update, withdrawal_delete
 from core.views.dues_views import dues_list, due_detail, due_pay
 
 urlpatterns = [
@@ -144,6 +144,7 @@ urlpatterns = [
     # Settings endpoints
     path('api/settings/', get_settings, name='get_settings'),
     path('api/settings/update/', update_settings, name='update_settings'),
+    path('api/settings/public/', get_public_settings, name='get_public_settings'),
     
     # KYC endpoints
     path('api/kyc/status/', kyc_status, name='kyc_status'),
@@ -189,6 +190,8 @@ urlpatterns = [
     path('api/withdrawals/', withdrawals_list, name='withdrawals_list'),
     path('api/withdrawals/create/', withdrawal_create, name='withdrawal_create'),
     path('api/withdrawals/<int:id>/', withdrawal_detail, name='withdrawal_detail'),
+    path('api/withdrawals/<int:id>/update/', withdrawal_update, name='withdrawal_update'),
+    path('api/withdrawals/<int:id>/delete/', withdrawal_delete, name='withdrawal_delete'),
     path('api/withdrawals/<int:id>/approve/', withdrawal_approve, name='withdrawal_approve'),
     path('api/withdrawals/<int:id>/reject/', withdrawal_reject, name='withdrawal_reject'),
     

@@ -59,6 +59,10 @@ def subscription_status(request):
                          (user.subscription_end_date.month - user.subscription_start_date.month)
             subscription_type = 'yearly' if months_diff >= 12 else 'monthly'
         
+        # Get is_subscription_fee setting
+        settings = SuperSetting.objects.first()
+        is_subscription_fee = settings.is_subscription_fee if settings else True
+        
         serializer = UserSerializer(user, context={'request': request})
         return Response({
             'subscription_state': subscription_state,
@@ -67,6 +71,7 @@ def subscription_status(request):
             'subscription_start_date': user.subscription_start_date.isoformat() if user.subscription_start_date else None,
             'subscription_end_date': user.subscription_end_date.isoformat() if user.subscription_end_date else None,
             'message': message,
+            'is_subscription_fee': is_subscription_fee,
             'user': serializer.data
         }, status=status.HTTP_200_OK)
         
