@@ -3,7 +3,7 @@ from rest_framework import serializers
 from .models import (
     User, Unit, Category, Product, ProductVariant,
     Order, OrderItem, Transaction, TransactionHistory, SuperSetting, QRStandOrder, Invoice,
-    ShareholderWithdrawal
+    ShareholderWithdrawal, VendorCustomer
 )
 
 
@@ -427,3 +427,10 @@ class VendorDueSerializer(serializers.ModelSerializer):
     def get_is_over_threshold(self, obj):
         threshold = self.context.get('due_threshold', 1000)
         return obj.due_balance > threshold
+
+
+class VendorCustomerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VendorCustomer
+        fields = ['id', 'name', 'phone', 'user', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']

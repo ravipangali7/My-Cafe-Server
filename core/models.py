@@ -433,3 +433,23 @@ class ShareholderWithdrawal(models.Model):
     class Meta:
         verbose_name = "Shareholder Withdrawal"
         verbose_name_plural = "Shareholder Withdrawals"
+
+
+# --------------------
+# Vendor Customer
+# --------------------
+class VendorCustomer(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    name = models.CharField(max_length=100)
+    phone = models.CharField(max_length=15)
+    user = models.ForeignKey(User, related_name="vendor_customers", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'phone')
+        verbose_name = "Vendor Customer"
+        verbose_name_plural = "Vendor Customers"
+
+    def __str__(self):
+        return f"{self.name} ({self.phone})"

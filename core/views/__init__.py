@@ -13,3 +13,4 @@ from .shareholders_views import *
 from .withdrawals_views import *
 from .dues_views import *
 from .payment_views import *
+from .vendor_customer_views import *
