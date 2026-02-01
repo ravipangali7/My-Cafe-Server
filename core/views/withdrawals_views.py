@@ -94,17 +94,11 @@ def withdrawals_list(request):
 
 @api_view(['POST'])
 def withdrawal_create(request):
-    """Create a new withdrawal request (for shareholders only)"""
+    """Create a new withdrawal request (for shareholders or by superusers on behalf of shareholders)"""
     if not request.user.is_authenticated:
         return Response(
             {'error': 'Not authenticated'},
             status=status.HTTP_401_UNAUTHORIZED
-        )
-    
-    if not request.user.is_shareholder:
-        return Response(
-            {'error': 'Only shareholders can request withdrawals'},
-            status=status.HTTP_403_FORBIDDEN
         )
     
     try:
@@ -113,6 +107,33 @@ def withdrawal_create(request):
             data = json.loads(request.body)
         else:
             data = request.POST
+        
+        # Determine target user for the withdrawal
+        user_id = data.get('user_id')
+        
+        if request.user.is_superuser and user_id:
+            # Superuser creating withdrawal on behalf of a shareholder
+            try:
+                target_user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response(
+                    {'error': 'Target user not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            if not target_user.is_shareholder:
+                return Response(
+                    {'error': 'Target user is not a shareholder'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            # Shareholder creating their own withdrawal
+            if not request.user.is_shareholder:
+                return Response(
+                    {'error': 'Only shareholders can request withdrawals'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            target_user = request.user
         
         amount = data.get('amount')
         remarks = data.get('remarks', '')
@@ -136,28 +157,28 @@ def withdrawal_create(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if user has sufficient balance
-        if amount > request.user.balance:
+        # Check if target user has sufficient balance
+        if amount > target_user.balance:
             return Response(
-                {'error': f'Insufficient balance. Available: {request.user.balance}'},
+                {'error': f'Insufficient balance. Available: {target_user.balance}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if there's already a pending withdrawal
+        # Check if there's already a pending withdrawal for the target user
         pending_withdrawals = ShareholderWithdrawal.objects.filter(
-            user=request.user,
+            user=target_user,
             status='pending'
         ).exists()
         
         if pending_withdrawals:
             return Response(
-                {'error': 'You already have a pending withdrawal request'},
+                {'error': f'{target_user.name} already has a pending withdrawal request'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Create withdrawal request
+        # Create withdrawal request for target user
         withdrawal = ShareholderWithdrawal.objects.create(
-            user=request.user,
+            user=target_user,
             amount=amount,
             status='pending',
             remarks=remarks
