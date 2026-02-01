@@ -240,10 +240,10 @@ def due_pay(request):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Validate amount doesn't exceed due balance
-        if amount > vendor.due_balance:
+        # Validate amount equals full due balance (full payment only)
+        if amount != vendor.due_balance:
             return Response(
-                {'error': f'Amount ({amount}) exceeds due balance ({vendor.due_balance})'},
+                {'error': f'Full payment required. Amount must be exactly {vendor.due_balance}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
