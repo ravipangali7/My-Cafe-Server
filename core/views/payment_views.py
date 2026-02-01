@@ -283,6 +283,9 @@ def verify_payment(request, client_txn_id):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        # Get vendor phone for redirect (used by frontend for non-logged-in users)
+        vendor_phone = transaction.user.phone if transaction.user else None
+        
         # If already processed, return cached status
         if transaction.ug_status in ['success', 'failure']:
             return Response({
@@ -297,7 +300,8 @@ def verify_payment(request, client_txn_id):
                     'ug_status': transaction.ug_status,
                     'ug_remark': transaction.ug_remark,
                     'payment_type': transaction.transaction_category,
-                    'created_at': transaction.created_at.isoformat()
+                    'created_at': transaction.created_at.isoformat(),
+                    'vendor_phone': vendor_phone
                 }
             }, status=status.HTTP_200_OK)
         
@@ -332,7 +336,8 @@ def verify_payment(request, client_txn_id):
                     'id': transaction.id,
                     'amount': str(transaction.amount),
                     'status': transaction.status,
-                    'ug_status': transaction.ug_status or 'pending'
+                    'ug_status': transaction.ug_status or 'pending',
+                    'vendor_phone': vendor_phone
                 }
             }, status=status.HTTP_200_OK)
         
@@ -466,7 +471,8 @@ def verify_payment(request, client_txn_id):
                 'ug_status': transaction.ug_status,
                 'ug_remark': transaction.ug_remark,
                 'payment_type': transaction.transaction_category,
-                'created_at': transaction.created_at.isoformat()
+                'created_at': transaction.created_at.isoformat(),
+                'vendor_phone': vendor_phone
             }
         }, status=status.HTTP_200_OK)
         
