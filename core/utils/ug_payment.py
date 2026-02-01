@@ -272,14 +272,15 @@ class UGPaymentClient:
                 "message": f"Unexpected error: {str(e)}"
             }
     
-    def get_redirect_url(self, client_txn_id: str) -> str:
+    def get_redirect_url(self) -> str:
         """
         Generate the redirect URL for payment callback.
         
-        Args:
-            client_txn_id: Your unique transaction ID
+        Note: Do NOT add query params here. UG gateway appends its own params
+        (?client_txn_id=XXX&txn_id=YYY) to this URL. Adding our own params
+        would result in a malformed URL with double '?' characters.
         
         Returns:
-            Full callback URL
+            Full callback URL without query params
         """
-        return f"{self.redirect_base_url}/api/payment/callback?txn_id={client_txn_id}"
+        return f"{self.redirect_base_url}/api/payment/callback"

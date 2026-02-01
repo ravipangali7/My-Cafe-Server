@@ -179,8 +179,11 @@ def initiate_payment(request):
         prefix = PREFIX_MAP[payment_type]
         client_txn_id = ug_client.generate_client_txn_id(prefix, reference_id)
         
-        # Generate redirect URL
-        redirect_url = ug_client.get_redirect_url(client_txn_id)
+        # Generate redirect URL (UG will append ?client_txn_id=XXX&txn_id=YYY)
+        redirect_url = ug_client.get_redirect_url()
+        
+        # Log the redirect URL being sent to UG for debugging
+        logger.info(f"Payment initiation for {client_txn_id}: redirect_url={redirect_url}")
         
         # Create UG payment order
         result = ug_client.create_order(
@@ -464,13 +467,21 @@ def payment_callback(request):
     This endpoint receives the redirect from UG after payment completion
     and redirects to the frontend payment status page.
     
-    Query params:
-        - txn_id: str (ug_client_txn_id, added by our redirect_url)
-        - client_txn_id: str (alternative from UG)
+    Query params (appended by UG gateway):
+        - client_txn_id: str (our transaction ID, sent back by UG)
+        - txn_id: str (UG's internal transaction ID)
     """
     try:
         # Get transaction ID from query params
-        txn_id = request.GET.get('txn_id') or request.GET.get('client_txn_id')
+        # UG sends: ?client_txn_id=MYC-XXX-N-TIMESTAMP&txn_id=UG_INTERNAL_ID
+        # We need client_txn_id (our ID) to find the transaction
+        received_client_txn_id = request.GET.get('client_txn_id')
+        received_txn_id = request.GET.get('txn_id')
+        
+        logger.info(f"Payment callback received: client_txn_id={received_client_txn_id}, txn_id={received_txn_id}")
+        
+        # Prioritize client_txn_id (our ID) over txn_id (UG's ID)
+        txn_id = received_client_txn_id or received_txn_id
         
         if not txn_id:
             # Redirect to frontend with error
