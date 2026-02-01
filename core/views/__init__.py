@@ -12,3 +12,4 @@ from .menu_views import *
 from .shareholders_views import *
 from .withdrawals_views import *
 from .dues_views import *
+from .payment_views import *

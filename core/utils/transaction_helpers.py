@@ -5,6 +5,15 @@ Dual Transaction Pattern:
 When is_system=True, TWO transactions are created:
 - If system receives money (system_direction='in'): User pays OUT, System gets IN
 - If system gives money (system_direction='out'): System pays OUT, User gets IN
+
+UG Payment Gateway Integration:
+All transaction creation functions support UG-specific fields through **extra_fields:
+- ug_order_id: UG Gateway order ID
+- ug_client_txn_id: Unique transaction ID sent to UG
+- ug_payment_url: Payment URL for redirect
+- ug_txn_date: Transaction date for status check
+- ug_status: UG payment status (created/scanning/success/failure)
+- ug_remark: UG remark/message
 """
 
 from decimal import Decimal
@@ -36,7 +45,8 @@ def create_dual_transaction(
         order: Order instance (optional)
         qr_stand_order: QRStandOrder instance (optional)
         status: Transaction status (default: 'success')
-        **extra_fields: Additional fields like utr, vpa, payer_name, bank_id
+        **extra_fields: Additional fields like utr, vpa, payer_name, bank_id,
+            ug_order_id, ug_client_txn_id, ug_payment_url, ug_txn_date, ug_status, ug_remark
     
     Returns:
         tuple: (txn_user, txn_system) - Both transaction instances
@@ -106,7 +116,8 @@ def create_single_transaction(
         qr_stand_order: QRStandOrder instance (optional)
         status: Transaction status (default: 'success')
         remarks: Transaction remarks
-        **extra_fields: Additional fields like utr, vpa, payer_name, bank_id
+        **extra_fields: Additional fields like utr, vpa, payer_name, bank_id,
+            ug_order_id, ug_client_txn_id, ug_payment_url, ug_txn_date, ug_status, ug_remark
     
     Returns:
         Transaction: The created transaction instance
@@ -211,7 +222,8 @@ def process_order_transactions(order, vendor, order_amount, transaction_fee, pay
         vendor: Vendor user instance
         order_amount: The order amount (without fee)
         transaction_fee: The transaction service fee
-        payment_data: Optional dict with utr, vpa, payer_name, bank_id
+        payment_data: Optional dict with utr, vpa, payer_name, bank_id,
+            and UG fields: ug_order_id, ug_client_txn_id, ug_payment_url, ug_txn_date, ug_status, ug_remark
     
     Returns:
         tuple: (order_txn, fee_txn_user, fee_txn_system)
@@ -254,7 +266,8 @@ def process_qr_stand_payment(qr_order, payment_data=None):
     
     Args:
         qr_order: QRStandOrder instance
-        payment_data: Optional dict with utr, vpa, payer_name, bank_id
+        payment_data: Optional dict with utr, vpa, payer_name, bank_id,
+            and UG fields: ug_order_id, ug_client_txn_id, ug_payment_url, ug_txn_date, ug_status, ug_remark
     
     Returns:
         tuple: (txn_user, txn_system)
@@ -288,7 +301,8 @@ def process_subscription_payment(user, amount, months, payment_data=None):
         user: User instance
         amount: Subscription amount
         months: Number of months
-        payment_data: Optional dict with utr, vpa, payer_name, bank_id
+        payment_data: Optional dict with utr, vpa, payer_name, bank_id,
+            and UG fields: ug_order_id, ug_client_txn_id, ug_payment_url, ug_txn_date, ug_status, ug_remark
     
     Returns:
         tuple: (txn_user, txn_system)
@@ -320,7 +334,8 @@ def process_due_payment(vendor, amount, payment_data=None):
     Args:
         vendor: Vendor user instance
         amount: Payment amount
-        payment_data: Optional dict with utr, vpa, payer_name, bank_id
+        payment_data: Optional dict with utr, vpa, payer_name, bank_id,
+            and UG fields: ug_order_id, ug_client_txn_id, ug_payment_url, ug_txn_date, ug_status, ug_remark
     
     Returns:
         tuple: (txn_user, txn_system)

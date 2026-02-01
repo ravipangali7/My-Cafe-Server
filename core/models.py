@@ -289,6 +289,15 @@ class Transaction(models.Model):
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPE_CHOICES, default="in")
     transaction_category = models.CharField(max_length=30, choices=TRANSACTION_CATEGORY_CHOICES, default="order")
     is_system = models.BooleanField(default=False)
+    
+    # UG Payment Gateway Fields
+    ug_order_id = models.BigIntegerField(blank=True, null=True)
+    ug_client_txn_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
+    ug_payment_url = models.URLField(max_length=500, blank=True, null=True)
+    ug_txn_date = models.DateField(blank=True, null=True)
+    ug_status = models.CharField(max_length=20, blank=True, null=True)
+    ug_remark = models.TextField(blank=True, null=True)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
