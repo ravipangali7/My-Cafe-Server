@@ -244,9 +244,14 @@ def initiate_payment(request):
 
 
 @api_view(['GET'])
+@authentication_classes([])  # Allow unauthenticated access - called from frontend callback
+@permission_classes([AllowAny])
 def verify_payment(request, txn_id):
     """
     Verify the status of a UG payment.
+    
+    NOTE: This endpoint allows unauthenticated access because it's called
+    from the frontend payment callback page which may not have session auth.
     
     URL params:
         - txn_id: str (ug_client_txn_id)

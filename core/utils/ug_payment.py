@@ -276,11 +276,14 @@ class UGPaymentClient:
         """
         Generate the redirect URL for payment callback.
         
+        This redirects to the React FRONTEND (not Django backend) for better UX.
+        React will then call the backend API to verify and process the payment.
+        
         Note: Do NOT add query params here. UG gateway appends its own params
         (?client_txn_id=XXX&txn_id=YYY) to this URL. Adding our own params
         would result in a malformed URL with double '?' characters.
         
         Returns:
-            Full callback URL without query params
+            Full callback URL pointing to React frontend route
         """
-        return f"{self.redirect_base_url}/api/payment/callback"
+        return f"{self.redirect_base_url}/payment/callback"
