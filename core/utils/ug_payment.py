@@ -182,7 +182,7 @@ class UGPaymentClient:
         """
         url = f"{self.base_url}/check_order_status"
         
-        # Format date as DD-MM-YYYY
+        # Format date as DD-MM-YYYY (UG expects this format)
         txn_date_str = txn_date.strftime("%d-%m-%Y")
         
         payload = {
@@ -192,7 +192,9 @@ class UGPaymentClient:
         }
         
         try:
-            logger.info(f"Checking UG order status: {client_txn_id}")
+            # Detailed logging for debugging
+            logger.info(f"UG check_order_status request: client_txn_id={client_txn_id}, txn_date={txn_date_str}")
+            logger.debug(f"UG API payload (key hidden): client_txn_id={client_txn_id}, txn_date={txn_date_str}")
             
             response = requests.post(
                 url,
@@ -202,6 +204,9 @@ class UGPaymentClient:
             )
             
             data = response.json()
+            
+            # Log the raw response for debugging
+            logger.info(f"UG API response: status={data.get('status')}, msg={data.get('msg')}")
             
             if data.get("status") is True:
                 txn_data = data.get("data", {})

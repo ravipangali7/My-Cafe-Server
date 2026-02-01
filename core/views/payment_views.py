@@ -11,11 +11,20 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import redirect
 from django.conf import settings as django_settings
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 import json
 import logging
 import time
+
+
+def get_ist_date():
+    """
+    Get current date in IST (Indian Standard Time = UTC+5:30).
+    UG payment gateway (ekQR) is based in India and uses IST.
+    """
+    ist_now = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    return ist_now.date()
 
 from ..models import Transaction, Order, QRStandOrder, User, SuperSetting
 from ..utils.ug_payment import UGPaymentClient
@@ -207,6 +216,10 @@ def initiate_payment(request):
             )
         
         # Create pending transaction with UG data
+        # Use IST date since UG (ekQR) is an Indian gateway using IST timezone
+        ist_date = get_ist_date()
+        logger.info(f"Using IST date for UG transaction: {ist_date}")
+        
         transaction = Transaction.objects.create(
             user=user,
             order=order,
@@ -220,7 +233,7 @@ def initiate_payment(request):
             ug_order_id=result['order_id'],
             ug_client_txn_id=client_txn_id,
             ug_payment_url=result['payment_url'],
-            ug_txn_date=date.today(),
+            ug_txn_date=ist_date,
             ug_status='created'
         )
         
