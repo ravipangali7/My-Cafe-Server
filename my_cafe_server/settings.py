@@ -198,4 +198,4 @@ MSG91_WHATSAPP_TEMPLATE_VENDOR_NAMESPACE = '127da27c_b9fd_4c25_9bb8_3b641684458e
 # UG Payment Gateway Configuration
 UG_API_KEY = os.environ.get('UG_API_KEY', 'cf9958bc-eba7-4a18-918a-b48f44a0a9fc')
 UG_API_BASE_URL = os.environ.get('UG_API_BASE_URL', 'https://api.ekqr.in/api')
-PAYMENT_REDIRECT_BASE_URL = os.environ.get('PAYMENT_REDIRECT_BASE_URL', 'https://mycafe.sewabyapar.com')
+PAYMENT_REDIRECT_BASE_URL = os.environ.get('PAYMENT_REDIRECT_BASE_URL', 'https://mycafeserver.sewabyapar.com')
