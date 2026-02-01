@@ -426,4 +426,4 @@ class VendorDueSerializer(serializers.ModelSerializer):
     
     def get_is_over_threshold(self, obj):
         threshold = self.context.get('due_threshold', 1000)
-        return obj.due_balance >= threshold
+        return obj.due_balance > threshold

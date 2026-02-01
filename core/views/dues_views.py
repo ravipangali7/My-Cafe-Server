@@ -30,7 +30,7 @@ def due_status(request):
         due_balance = request.user.due_balance
         
         # Determine if user is blocked (due exceeds threshold)
-        is_blocked = due_balance >= due_threshold
+        is_blocked = due_balance > due_threshold
         
         return Response({
             'due_balance': due_balance,
@@ -87,7 +87,7 @@ def dues_list(request):
         
         # Filter by over threshold
         if over_threshold_only:
-            queryset = queryset.filter(due_balance__gte=due_threshold)
+            queryset = queryset.filter(due_balance__gt=due_threshold)
         
         # Apply search
         if search:
@@ -117,7 +117,7 @@ def dues_list(request):
         
         # Calculate total dues
         total_dues = queryset.aggregate(total=Sum('due_balance'))['total'] or 0
-        over_threshold_count = queryset.filter(due_balance__gte=due_threshold).count()
+        over_threshold_count = queryset.filter(due_balance__gt=due_threshold).count()
         
         return Response({
             'vendors': serializer.data,
