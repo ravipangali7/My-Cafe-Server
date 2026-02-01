@@ -282,4 +282,4 @@ class UGPaymentClient:
         Returns:
             Full callback URL
         """
-        return f"{self.redirect_base_url}/payment/callback?txn_id={client_txn_id}"
+        return f"{self.redirect_base_url}/api/payment/callback?txn_id={client_txn_id}"
