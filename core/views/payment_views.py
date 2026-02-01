@@ -296,9 +296,9 @@ def verify_payment(request, client_txn_id):
         result = None
         
         for attempt in range(max_retries):
-            result = ug_client.check_order_status(txn_id, transaction.ug_txn_date)
+            result = ug_client.check_order_status(client_txn_id, transaction.ug_txn_date)
             
-            logger.info(f"verify_payment attempt {attempt + 1}/{max_retries} for {txn_id}: "
+            logger.info(f"verify_payment attempt {attempt + 1}/{max_retries} for {client_txn_id}: "
                        f"success={result['success']}, status={result.get('status', 'N/A')}")
             
             # If we got a definitive status (success or failure), break out of retry loop
@@ -344,7 +344,7 @@ def verify_payment(request, client_txn_id):
             payment_type = result.get('udf2') or transaction.transaction_category
             
             # Detailed logging for debugging payment type resolution
-            logger.info(f"Payment type resolution for {txn_id}: "
+            logger.info(f"Payment type resolution for {client_txn_id}: "
                        f"udf2='{result.get('udf2')}', "
                        f"transaction_category='{transaction.transaction_category}', "
                        f"resolved_payment_type='{payment_type}'")
