@@ -492,7 +492,7 @@ def payment_callback(request):
         logger.info(f"Payment callback received: client_txn_id={received_client_txn_id}, txn_id={received_txn_id}")
         
         # Prioritize client_txn_id (our ID) over txn_id (UG's ID)
-        txn_id = received_client_txn_id or received_txn_id
+        txn_id = received_client_txn_id
         
         if not txn_id:
             # Redirect to frontend with error
