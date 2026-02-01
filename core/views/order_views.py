@@ -125,23 +125,19 @@ def order_create(request):
             )
         
         # Determine the vendor/user for this order
-        order_user = None
-        if request.user.is_authenticated:
-            # Authenticated user - use their account
-            order_user = request.user
-        elif vendor_phone:
-            # Guest order - find vendor by phone
-            try:
-                order_user = User.objects.get(phone=vendor_phone, is_active=True)
-            except User.DoesNotExist:
-                return Response(
-                    {'error': 'Vendor not found'},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-        else:
+        # Always use vendor_phone to find the vendor - the user field represents the cafe owner, not the customer
+        if not vendor_phone:
             return Response(
-                {'error': 'Either authentication or vendor_phone is required'},
+                {'error': 'vendor_phone is required'},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            order_user = User.objects.get(phone=vendor_phone, is_active=True)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Vendor not found'},
+                status=status.HTTP_404_NOT_FOUND
             )
         
         # Fetch transaction fee from settings
