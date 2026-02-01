@@ -56,7 +56,7 @@ from core.views.qr_views import qr_generate, qr_download_pdf, qr_card_download_p
 from core.views.invoice_views import invoice_generate, invoice_download
 from core.views.shareholders_views import shareholders_list, shareholder_detail, shareholder_update
 from core.views.withdrawals_views import withdrawals_list, withdrawal_create, withdrawal_detail, withdrawal_approve, withdrawal_reject, withdrawal_update, withdrawal_delete
-from core.views.dues_views import dues_list, due_detail, due_pay
+from core.views.dues_views import dues_list, due_detail, due_pay, due_status
 
 urlpatterns = [
     
@@ -197,6 +197,7 @@ urlpatterns = [
     
     # Dues endpoints
     path('api/dues/', dues_list, name='dues_list'),
+    path('api/dues/status/', due_status, name='due_status'),
     path('api/dues/<int:id>/', due_detail, name='due_detail'),
     path('api/dues/pay/', due_pay, name='due_pay'),
     

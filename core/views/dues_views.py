@@ -13,6 +13,40 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])
+def due_status(request):
+    """Get current user's due status for threshold check"""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    
+    try:
+        # Get settings for threshold
+        settings = SuperSetting.objects.first()
+        due_threshold = settings.due_threshold if settings else 1000
+        
+        # Get user's due balance
+        due_balance = request.user.due_balance
+        
+        # Determine if user is blocked (due exceeds threshold)
+        is_blocked = due_balance >= due_threshold
+        
+        return Response({
+            'due_balance': due_balance,
+            'due_threshold': due_threshold,
+            'is_blocked': is_blocked
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f'Error getting due status: {str(e)}')
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
 def dues_list(request):
     """List all vendors with outstanding dues"""
     if not request.user.is_authenticated:
