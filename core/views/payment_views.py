@@ -246,7 +246,7 @@ def initiate_payment(request):
 @api_view(['GET'])
 @authentication_classes([])  # Allow unauthenticated access - called from frontend callback
 @permission_classes([AllowAny])
-def verify_payment(request, txn_id):
+def verify_payment(request, client_txn_id):
     """
     Verify the status of a UG payment.
     
@@ -254,7 +254,7 @@ def verify_payment(request, txn_id):
     from the frontend payment callback page which may not have session auth.
     
     URL params:
-        - txn_id: str (ug_client_txn_id)
+        - client_txn_id: str (ug_client_client_txn_id)
     
     Returns:
         - status: str (success/failure/pending/scanning)
@@ -263,7 +263,7 @@ def verify_payment(request, txn_id):
     try:
         # Find transaction by UG client transaction ID
         try:
-            transaction = Transaction.objects.get(ug_client_txn_id=txn_id)
+            transaction = Transaction.objects.get(ug_client_txn_id=client_txn_id)
         except Transaction.DoesNotExist:
             return Response(
                 {'error': 'Transaction not found'},

@@ -204,7 +204,7 @@ urlpatterns = [
     
     # Payment endpoints (UG Gateway)
     path('api/payment/initiate/', initiate_payment, name='initiate_payment'),
-    path('api/payment/verify/<str:txn_id>/', verify_payment, name='verify_payment'),
+    path('api/payment/verify/<str:client_txn_id>/', verify_payment, name='verify_payment'),
     path('api/payment/callback/', payment_callback, name='payment_callback'),
     path('api/payment/status/order/<int:order_id>/', payment_status_by_order, name='payment_status_by_order'),
     path('api/payment/status/qr-stand/<int:qr_stand_order_id>/', payment_status_by_qr_stand, name='payment_status_by_qr_stand'),
