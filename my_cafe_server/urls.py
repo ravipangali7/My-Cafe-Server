@@ -53,7 +53,7 @@ from core.views.menu_views import vendor_public_by_phone
 from core.views.subscription_views import subscription_status, subscription_plans, subscription_subscribe, subscription_payment_success, subscription_transactions, subscription_history
 from core.views.qr_stand_views import qr_stand_order_list, qr_stand_order_create, qr_stand_order_detail, qr_stand_order_update, qr_stand_order_delete
 from core.views.qr_views import qr_generate, qr_download_pdf, qr_card_download_png, qr_card_download_pdf
-from core.views.invoice_views import invoice_generate, invoice_download
+from core.views.invoice_views import invoice_generate, invoice_download, invoice_public_url, invoice_public_view, invoice_public_download
 from core.views.shareholders_views import shareholders_list, shareholder_detail, shareholder_update
 from core.views.withdrawals_views import withdrawals_list, withdrawal_create, withdrawal_detail, withdrawal_approve, withdrawal_reject, withdrawal_update, withdrawal_delete
 from core.views.dues_views import dues_list, due_detail, due_pay, due_status
@@ -138,6 +138,10 @@ urlpatterns = [
     # Invoice endpoints
     path('api/orders/<int:order_id>/invoice/generate/', invoice_generate, name='invoice_generate'),
     path('api/orders/<int:order_id>/invoice/download/', invoice_download, name='invoice_download'),
+    path('api/orders/<int:order_id>/invoice/public-url/', invoice_public_url, name='invoice_public_url'),
+    # Public invoice endpoints (no authentication required)
+    path('api/invoices/public/<int:order_id>/<str:token>/', invoice_public_view, name='invoice_public_view'),
+    path('api/invoices/public/<int:order_id>/<str:token>/download/', invoice_public_download, name='invoice_public_download'),
     
     # Transaction endpoints
     path('api/transactions/', transaction_list, name='transaction_list'),
