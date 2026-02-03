@@ -43,6 +43,7 @@ from core.views import (
     product_stats, order_stats, category_stats, transaction_stats, unit_stats, vendor_stats,
     # Report views
     cafe_report, order_report, product_report, finance_report,
+    vendor_report, shareholder_report, customer_report,
     # Menu views
     menu_by_vendor_phone,
 )
@@ -106,6 +107,9 @@ urlpatterns = [
     path('api/reports/orders/', order_report, name='order_report'),
     path('api/reports/products/', product_report, name='product_report'),
     path('api/reports/finance/', finance_report, name='finance_report'),
+    path('api/reports/vendors/', vendor_report, name='vendor_report'),
+    path('api/reports/shareholders/', shareholder_report, name='shareholder_report'),
+    path('api/reports/customers/', customer_report, name='customer_report'),
     
     # Product endpoints
     path('api/products/', product_list, name='product_list'),
