@@ -244,6 +244,8 @@ def update_settings(request):
         due_threshold = data.get('due_threshold', 1000)
         is_whatsapp_usage = data.get('is_whatsapp_usage', True)
         whatsapp_per_usage = data.get('whatsapp_per_usage', 0)
+        whatsapp_template_marketing = data.get('whatsapp_template_marketing', 'mycafemarketing')
+        whatsapp_template_imagemarketing = data.get('whatsapp_template_imagemarketing', 'mycafeimagemarketing')
         share_distribution_day = data.get('share_distribution_day', 7)
         
         # Validate optional fields are non-negative integers
@@ -317,6 +319,8 @@ def update_settings(request):
                 'due_threshold': due_threshold,
                 'is_whatsapp_usage': is_whatsapp_usage,
                 'whatsapp_per_usage': whatsapp_per_usage,
+                'whatsapp_template_marketing': whatsapp_template_marketing or 'mycafemarketing',
+                'whatsapp_template_imagemarketing': whatsapp_template_imagemarketing or 'mycafeimagemarketing',
                 'share_distribution_day': share_distribution_day,
             }
         )
@@ -336,6 +340,8 @@ def update_settings(request):
             setting.due_threshold = due_threshold
             setting.is_whatsapp_usage = is_whatsapp_usage
             setting.whatsapp_per_usage = whatsapp_per_usage
+            setting.whatsapp_template_marketing = whatsapp_template_marketing or 'mycafemarketing'
+            setting.whatsapp_template_imagemarketing = whatsapp_template_imagemarketing or 'mycafeimagemarketing'
             setting.share_distribution_day = share_distribution_day
             # Note: balance is NOT updated through this API - only through transactions
         # #region agent log

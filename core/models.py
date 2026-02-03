@@ -325,6 +325,8 @@ class SuperSetting(models.Model):
     due_threshold = models.IntegerField(default=1000)
     is_whatsapp_usage = models.BooleanField(default=True)
     whatsapp_per_usage = models.IntegerField(default=0)
+    whatsapp_template_marketing = models.CharField(max_length=100, default='mycafemarketing', blank=True)
+    whatsapp_template_imagemarketing = models.CharField(max_length=100, default='mycafeimagemarketing', blank=True)
     share_distribution_day = models.IntegerField(default=7)
     balance = models.IntegerField(default=0)
     
@@ -453,3 +455,38 @@ class VendorCustomer(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.phone})"
+
+
+# --------------------
+# WhatsApp Notification
+# --------------------
+class WhatsAppNotification(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_SENDING = 'sending'
+    STATUS_SENT = 'sent'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_SENDING, 'Sending'),
+        (STATUS_SENT, 'Sent'),
+        (STATUS_FAILED, 'Failed'),
+    )
+
+    id = models.BigAutoField(primary_key=True)
+    message = models.TextField()
+    user = models.ForeignKey(User, related_name='whatsapp_notifications', on_delete=models.CASCADE)
+    customers = models.ManyToManyField(VendorCustomer, related_name='whatsapp_notifications', blank=True)
+    image = models.ImageField(upload_to='whatsapp_notifications/', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    sent_count = models.PositiveIntegerField(default=0)
+    total_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = 'WhatsApp Notification'
+        verbose_name_plural = 'WhatsApp Notifications'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"WhatsApp Notification #{self.id} - {self.user.name}"

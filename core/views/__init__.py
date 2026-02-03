@@ -14,3 +14,8 @@ from .withdrawals_views import *
 from .dues_views import *
 from .payment_views import *
 from .vendor_customer_views import *
+from .whatsapp_notification_views import (
+    whatsapp_notification_list,
+    whatsapp_notification_detail,
+    whatsapp_notification_create,
+)

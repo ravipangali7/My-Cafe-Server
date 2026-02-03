@@ -200,3 +200,5 @@ UG_API_KEY = os.environ.get('UG_API_KEY', 'cf9958bc-eba7-4a18-918a-b48f44a0a9fc'
 UG_API_BASE_URL = os.environ.get('UG_API_BASE_URL', 'https://api.ekqr.in/api')
 # Redirect URL for UG payment callback - points to React frontend for nice UI
 PAYMENT_REDIRECT_BASE_URL = os.environ.get('PAYMENT_REDIRECT_BASE_URL', 'https://mycafe.sewabyapar.com')
+# Base URL for this server (used e.g. for absolute media URLs in WhatsApp marketing)
+BASE_URL = os.environ.get('BASE_URL', 'https://mycafeserver.sewabyapar.com')

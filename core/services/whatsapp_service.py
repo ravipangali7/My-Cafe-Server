@@ -5,6 +5,8 @@ import requests
 import logging
 from django.conf import settings
 
+from core.models import SuperSetting
+
 logger = logging.getLogger(__name__)
 
 # MSG91 WhatsApp API endpoint
@@ -198,3 +200,177 @@ def send_order_bill_whatsapp(order, invoice_pdf_url: str) -> bool:
     
     # Return True if at least one message was sent successfully
     return customer_success or vendor_success
+
+
+def _get_marketing_template_names():
+    """Get marketing template names from SuperSetting or Django settings fallback."""
+    try:
+        super_setting = SuperSetting.objects.filter(id=1).first()
+        if super_setting:
+            template_marketing = getattr(
+                super_setting, 'whatsapp_template_marketing', None
+            ) or getattr(settings, 'MSG91_WHATSAPP_TEMPLATE_MARKETING', 'mycafemarketing')
+            template_imagemarketing = getattr(
+                super_setting, 'whatsapp_template_imagemarketing', None
+            ) or getattr(settings, 'MSG91_WHATSAPP_TEMPLATE_IMAGE_MARKETING', 'mycafeimagemarketing')
+            return template_marketing, template_imagemarketing
+    except Exception:
+        pass
+    return (
+        getattr(settings, 'MSG91_WHATSAPP_TEMPLATE_MARKETING', 'mycafemarketing'),
+        getattr(settings, 'MSG91_WHATSAPP_TEMPLATE_IMAGE_MARKETING', 'mycafeimagemarketing'),
+    )
+
+
+def _send_marketing_whatsapp_single(
+    phone: str,
+    message: str,
+    image_url: str,
+    template_name: str,
+    template_namespace: str,
+    has_image: bool,
+    notification_id: int,
+) -> bool:
+    """
+    Send a single marketing WhatsApp message (text or text+image template).
+    """
+    try:
+        components = {}
+        if has_image and image_url:
+            components['header_1'] = {
+                'type': 'image',
+                'value': image_url,
+            }
+        # Body component: dynamic text (message)
+        components['body_1'] = {
+            'type': 'text',
+            'value': message or '',
+        }
+
+        payload = {
+            'integrated_number': getattr(settings, 'MSG91_WHATSAPP_INTEGRATED_NUMBER', ''),
+            'content_type': 'template',
+            'payload': {
+                'messaging_product': 'whatsapp',
+                'type': 'template',
+                'template': {
+                    'name': template_name,
+                    'language': {'code': 'en', 'policy': 'deterministic'},
+                    'namespace': template_namespace,
+                    'to_and_components': [
+                        {'to': [phone], 'components': components}
+                    ],
+                },
+            },
+        }
+
+        headers = {
+            'Content-Type': 'application/json',
+            'authkey': getattr(settings, 'MSG91_AUTH_KEY', ''),
+        }
+
+        response = requests.post(
+            MSG91_WHATSAPP_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+
+        if response.status_code == 200:
+            response_data = response.json()
+            if response_data.get('status') == 'success':
+                logger.info(
+                    f'WhatsApp marketing sent to {phone} for notification #{notification_id}. '
+                    f'Template: {template_name}'
+                )
+                return True
+            logger.error(
+                f'MSG91 API error for notification #{notification_id} ({phone}): {response_data}'
+            )
+            return False
+        logger.error(
+            f'MSG91 API failed for notification #{notification_id} ({phone}): '
+            f'status={response.status_code}, body={response.text}'
+        )
+        return False
+    except requests.exceptions.Timeout:
+        logger.error(f'MSG91 API timeout for notification #{notification_id} ({phone})')
+        return False
+    except Exception as e:
+        logger.error(f'Failed to send marketing WhatsApp to {phone}: {e}')
+        return False
+
+
+def send_marketing_whatsapp(notification):
+    """
+    Send marketing WhatsApp to all customers on the notification.
+    Updates notification.sent_count after each send; sets status to 'sent' or 'failed'.
+    On full success, charges vendor via process_whatsapp_usage(sent_count * whatsapp_per_usage).
+    """
+    from django.db import transaction as db_transaction
+    from core.models import WhatsAppNotification
+    from core.utils.transaction_helpers import process_whatsapp_usage
+
+    template_marketing, template_imagemarketing = _get_marketing_template_names()
+    namespace = getattr(
+        settings, 'MSG91_WHATSAPP_TEMPLATE_CUSTOMER_NAMESPACE',
+        getattr(settings, 'MSG91_WHATSAPP_TEMPLATE_VENDOR_NAMESPACE', ''),
+    )
+    has_image = bool(notification.image)
+    template_name = template_imagemarketing if has_image else template_marketing
+    image_url = None
+    if has_image and notification.image:
+        try:
+            image_url = notification.image.url
+            if not image_url.startswith('http'):
+                base = getattr(settings, 'BASE_URL', '').rstrip('/')
+                if base:
+                    image_url = base + ('/' + image_url.lstrip('/'))
+        except Exception as e:
+            logger.warning(f'Could not build image URL for notification #{notification.id}: {e}')
+
+    vendor_country_code = getattr(notification.user, 'country_code', None) or '91'
+    customers = list(notification.customers.all())
+    total = len(customers)
+    sent = 0
+
+    for customer in customers:
+        phone = format_phone_number(customer.phone, vendor_country_code)
+        if not phone:
+            continue
+        ok = _send_marketing_whatsapp_single(
+            phone=phone,
+            message=notification.message,
+            image_url=image_url or '',
+            template_name=template_name,
+            template_namespace=namespace,
+            has_image=has_image,
+            notification_id=notification.id,
+        )
+        if ok:
+            sent += 1
+        # Update progress in DB
+        WhatsAppNotification.objects.filter(pk=notification.pk).update(
+            sent_count=sent,
+        )
+
+    # Reload notification to get latest sent_count
+    notification.refresh_from_db()
+    all_success = sent == total and total > 0
+
+    with db_transaction.atomic():
+        n = WhatsAppNotification.objects.select_for_update().get(pk=notification.pk)
+        n.sent_count = sent
+        n.status = WhatsAppNotification.STATUS_SENT if all_success else WhatsAppNotification.STATUS_FAILED
+        n.save(update_fields=['sent_count', 'status', 'updated_at'])
+
+    if all_success:
+        try:
+            super_setting = SuperSetting.objects.filter(id=1).first()
+            if super_setting and getattr(super_setting, 'is_whatsapp_usage', True):
+                per_usage = getattr(super_setting, 'whatsapp_per_usage', 0) or 0
+                if per_usage > 0:
+                    cost = sent * per_usage
+                    process_whatsapp_usage(notification.user, cost)
+        except Exception as e:
+            logger.error(f'Failed to process WhatsApp usage for notification #{notification.id}: {e}')

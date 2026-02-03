@@ -3,7 +3,7 @@ from rest_framework import serializers
 from .models import (
     User, Unit, Category, Product, ProductVariant,
     Order, OrderItem, Transaction, TransactionHistory, SuperSetting, QRStandOrder, Invoice,
-    ShareholderWithdrawal, VendorCustomer
+    ShareholderWithdrawal, VendorCustomer, WhatsAppNotification
 )
 
 
@@ -288,6 +288,7 @@ class SuperSettingSerializer(serializers.ModelSerializer):
             'subscription_fee_per_month',
             'ug_client_transaction_id', 'per_transaction_fee', 'is_subscription_fee',
             'due_threshold', 'is_whatsapp_usage', 'whatsapp_per_usage',
+            'whatsapp_template_marketing', 'whatsapp_template_imagemarketing',
             'share_distribution_day', 'balance',
             'created_at', 'updated_at'
         ]
@@ -434,3 +435,53 @@ class VendorCustomerSerializer(serializers.ModelSerializer):
         model = VendorCustomer
         fields = ['id', 'name', 'phone', 'user', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class WhatsAppNotificationSerializer(serializers.ModelSerializer):
+    user_display = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
+    customers_list = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WhatsAppNotification
+        fields = [
+            'id', 'message', 'user', 'user_display', 'customers_list',
+            'image', 'image_url', 'created_at', 'updated_at',
+            'status', 'sent_count', 'total_count',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'status', 'sent_count', 'total_count']
+
+    def get_user_display(self, obj):
+        if obj.user:
+            return {'id': obj.user.id, 'name': obj.user.name, 'phone': obj.user.phone}
+        return None
+
+    def get_image_url(self, obj):
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+
+    def get_customers_list(self, obj):
+        return [
+            {'id': c.id, 'name': c.name, 'phone': c.phone}
+            for c in obj.customers.all()
+        ]
+
+
+class WhatsAppNotificationListSerializer(serializers.ModelSerializer):
+    user_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WhatsAppNotification
+        fields = [
+            'id', 'message', 'user', 'user_display', 'created_at', 'updated_at',
+            'status', 'sent_count', 'total_count',
+        ]
+
+    def get_user_display(self, obj):
+        if obj.user:
+            return {'id': obj.user.id, 'name': obj.user.name}
+        return None

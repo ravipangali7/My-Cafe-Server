@@ -60,6 +60,7 @@ from core.views.withdrawals_views import withdrawals_list, withdrawal_create, wi
 from core.views.dues_views import dues_list, due_detail, due_pay, due_status
 from core.views.payment_views import initiate_payment, verify_payment, payment_callback, payment_status_by_order, payment_status_by_qr_stand
 from core.views.vendor_customer_views import vendor_customer_list, vendor_customer_create, vendor_customer_detail, vendor_customer_edit, vendor_customer_delete
+from core.views.whatsapp_notification_views import whatsapp_notification_list, whatsapp_notification_detail, whatsapp_notification_create
 
 urlpatterns = [
     
@@ -225,6 +226,10 @@ urlpatterns = [
     path('api/vendor-customers/<int:id>/edit/', vendor_customer_edit, name='vendor_customer_edit'),
     path('api/vendor-customers/<int:id>/delete/', vendor_customer_delete, name='vendor_customer_delete'),
     
+    # WhatsApp Notifications (view-only list/detail, create with background send)
+    path('api/whatsapp-notifications/', whatsapp_notification_list, name='whatsapp_notification_list'),
+    path('api/whatsapp-notifications/create/', whatsapp_notification_create, name='whatsapp_notification_create'),
+    path('api/whatsapp-notifications/<int:id>/', whatsapp_notification_detail, name='whatsapp_notification_detail'),
 ]
 
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
