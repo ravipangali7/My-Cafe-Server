@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
-from ..models import Product, Order, OrderItem, Category, TransactionHistory, Unit, User, SuperSetting
+from ..models import Product, Order, OrderItem, Category, TransactionHistory, Unit, User, SuperSetting, QRStandOrder
 from decimal import Decimal
 
 
@@ -349,6 +349,44 @@ def vendor_stats(request):
             'due_blocked_vendors': due_blocked_vendors,
         }, status=status.HTTP_200_OK)
         
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+def qr_stand_stats(request):
+    """Get QR stand order statistics. Vendors see own; superuser sees all."""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    try:
+        if request.user.is_superuser:
+            queryset = QRStandOrder.objects.all()
+        else:
+            queryset = QRStandOrder.objects.filter(vendor=request.user)
+
+        total = queryset.count()
+        pending = queryset.filter(order_status='pending').count()
+        accepted = queryset.filter(order_status__in=['accepted', 'saved']).count()
+        delivered = queryset.filter(order_status='delivered').count()
+        revenue = queryset.filter(payment_status='paid').aggregate(
+            total_revenue=Sum('total_price')
+        )['total_revenue'] or Decimal('0')
+
+        return Response({
+            'total': total,
+            'pending': pending,
+            'accepted': accepted,
+            'delivered': delivered,
+            'revenue': str(revenue),
+        }, status=status.HTTP_200_OK)
+
     except Exception as e:
         return Response(
             {'error': str(e)},

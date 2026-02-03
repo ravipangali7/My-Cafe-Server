@@ -40,7 +40,7 @@ from core.views import (
     # Settings views
     get_settings, update_settings, users_stats, get_public_settings,
     # Stats views
-    product_stats, order_stats, category_stats, transaction_stats, unit_stats, vendor_stats,
+    product_stats, order_stats, category_stats, transaction_stats, unit_stats, vendor_stats, qr_stand_stats,
     # Report views
     cafe_report, order_report, product_report, finance_report,
     vendor_report, shareholder_report, customer_report,
@@ -101,6 +101,7 @@ urlpatterns = [
     path('api/stats/transactions/', transaction_stats, name='transaction_stats'),
     path('api/stats/units/', unit_stats, name='unit_stats'),
     path('api/stats/vendors/', vendor_stats, name='vendor_stats'),
+    path('api/stats/qr-stands/', qr_stand_stats, name='qr_stand_stats'),
     
     # Report endpoints
     path('api/reports/cafe', cafe_report, name='cafe_report'),  # No trailing slash to avoid redirect

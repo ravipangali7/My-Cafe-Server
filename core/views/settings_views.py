@@ -5,8 +5,8 @@ from django.db.models import Count, Sum, Q, Avg
 from django.utils import timezone
 from datetime import timedelta, date, datetime
 from decimal import Decimal
-from ..models import Product, Order, Category, Transaction, TransactionHistory, SuperSetting, OrderItem, User, QRStandOrder
-from ..serializers import SuperSettingSerializer, UserSerializer, TransactionHistorySerializer, QRStandOrderSerializer, OrderSerializer
+from ..models import Product, Order, Category, Transaction, TransactionHistory, SuperSetting, OrderItem, User, QRStandOrder, ShareholderWithdrawal
+from ..serializers import SuperSettingSerializer, UserSerializer, TransactionHistorySerializer, QRStandOrderSerializer, OrderSerializer, ShareholderWithdrawalSerializer
 
 
 @api_view(['GET'])
@@ -848,6 +848,93 @@ def super_admin_dashboard_data(request):
                 'total_revenue': str(user_revenue),
                 'kyc_status': user_obj.kyc_status,
             })
+
+        # System balance (from SuperSetting)
+        setting = SuperSetting.objects.filter(id=1).first()
+        system_balance = int(getattr(setting, 'balance', 0) or 0)
+
+        # Transaction and WhatsApp earnings by category (real-time from DB)
+        transaction_earnings = TransactionHistory.objects.filter(
+            status='success',
+            transaction_category='transaction_fee'
+        ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+        whatsapp_earnings = TransactionHistory.objects.filter(
+            status='success',
+            transaction_category='whatsapp_usage'
+        ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+
+        # Vendor-only stats (exclude superusers)
+        vendors_qs = User.objects.filter(is_superuser=False)
+        total_vendors = vendors_qs.count()
+        active_vendors = vendors_qs.filter(is_active=True).count()
+        inactive_vendors = vendors_qs.filter(is_active=False).count()
+        expired_vendors = vendors_qs.filter(
+            subscription_end_date__lt=today,
+            subscription_end_date__isnull=False
+        ).count()
+        due_threshold = getattr(setting, 'due_threshold', 1000) if setting else 1000
+        due_blocked_vendors = vendors_qs.filter(due_balance__gte=due_threshold).count()
+        total_due_amount = vendors_qs.aggregate(total=Sum('due_balance'))['total'] or 0
+
+        # Pending KYC requests (list for table)
+        pending_kyc_users = User.objects.filter(kyc_status=User.KYC_PENDING).order_by('-created_at')[:50]
+        pending_kyc_serializer = UserSerializer(pending_kyc_users, many=True, context={'request': request})
+
+        # Pending withdrawals (list for table)
+        pending_withdrawals_qs = ShareholderWithdrawal.objects.filter(status='pending').select_related('user').order_by('-created_at')[:20]
+        pending_withdrawals_serializer = ShareholderWithdrawalSerializer(pending_withdrawals_qs, many=True, context={'request': request})
+
+        # Top revenue vendors (for chart)
+        top_revenue_vendors = []
+        vendors_for_revenue = User.objects.filter(is_superuser=False).order_by('id')[:100]
+        for v in vendors_for_revenue:
+            rev = TransactionHistory.objects.filter(user=v, status='success').aggregate(total=Sum('amount'))['total'] or Decimal('0')
+            orders_count = Order.objects.filter(user=v).count()
+            logo_url = None
+            if v.logo:
+                logo_url = request.build_absolute_uri(v.logo.url)
+            top_revenue_vendors.append({
+                'id': v.id,
+                'name': v.name or '',
+                'phone': v.phone or '',
+                'logo_url': logo_url,
+                'total_revenue': float(rev),
+                'total_orders': orders_count,
+            })
+        top_revenue_vendors.sort(key=lambda x: x['total_revenue'], reverse=True)
+        top_revenue_vendors = top_revenue_vendors[:20]
+
+        # Financial trends (daily income, outgoing, profit, loss)
+        financial_trends = []
+        for i in range(30):
+            day = today - timedelta(days=29 - i)
+            day_income = TransactionHistory.objects.filter(
+                status='success',
+                created_at__date=day
+            ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+            day_outgoing = ShareholderWithdrawal.objects.filter(
+                status='approved',
+                updated_at__date=day
+            ).aggregate(total=Sum('amount'))['total'] or 0
+            day_outgoing = Decimal(str(day_outgoing))
+            profit = day_income - day_outgoing
+            financial_trends.append({
+                'date': day.isoformat(),
+                'income': float(day_income),
+                'outgoing': float(day_outgoing),
+                'profit': float(profit) if profit >= 0 else 0,
+                'loss': float(-profit) if profit < 0 else 0,
+            })
+
+        # Revenue breakdown (for pie chart)
+        revenue_breakdown = {
+            'qr_stand_earnings': float(qr_earnings),
+            'due_collection': 0,
+            'subscription_earnings': float(subscription_earnings),
+            'transaction_earnings': float(transaction_earnings),
+            'whatsapp_earnings': float(whatsapp_earnings),
+            'total': float(total_revenue),
+        }
         
         return Response({
             'users': {
@@ -867,7 +954,21 @@ def super_admin_dashboard_data(request):
             'subscription_earnings': str(subscription_earnings),
             'pending_qr_orders_count': pending_qr_orders_count,
             'transactions_trend': transactions_trend,
-            'users_overview': users_overview
+            'users_overview': users_overview,
+            'system_balance': system_balance,
+            'transaction_earnings': str(transaction_earnings),
+            'whatsapp_earnings': str(whatsapp_earnings),
+            'total_vendors': total_vendors,
+            'active_vendors': active_vendors,
+            'inactive_vendors': inactive_vendors,
+            'expired_vendors': expired_vendors,
+            'due_blocked_vendors': due_blocked_vendors,
+            'total_due_amount': total_due_amount,
+            'pending_kyc_requests': pending_kyc_serializer.data,
+            'pending_withdrawals': pending_withdrawals_serializer.data,
+            'top_revenue_vendors': top_revenue_vendors,
+            'financial_trends': financial_trends,
+            'revenue_breakdown': revenue_breakdown,
         }, status=status.HTTP_200_OK)
         
     except Exception as e:
