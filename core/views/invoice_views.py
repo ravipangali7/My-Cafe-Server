@@ -3,9 +3,10 @@ Invoice views for generating and downloading PDF bills
 """
 import hmac
 import hashlib
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 from django.http import HttpResponse, FileResponse
 from django.core.files.base import ContentFile
 from django.conf import settings
@@ -217,12 +218,12 @@ def invoice_public_url(request, order_id):
         # Generate secure token
         token = generate_invoice_token(order_id)
         
-        # Build the public URL (React page URL, not API endpoint)
-        # The React app will fetch invoice data from the public API
-        base_url = request.build_absolute_uri('/').rstrip('/')
-        # Use the web app URL (remove /api from base if present)
-        web_base = base_url.replace('/api', '')
-        public_url = f"{web_base}/invoice/public/{order_id}/{token}"
+        # Build the public URL (React/frontend page URL, not API endpoint)
+        # Use configured frontend base URL so the link opens the React app, not the API host
+        frontend_base = getattr(settings, 'FRONTEND_BASE_URL', None) or getattr(settings, 'PAYMENT_REDIRECT_BASE_URL', '')
+        if not frontend_base:
+            frontend_base = request.build_absolute_uri('/').rstrip('/').replace('/api', '')
+        public_url = f"{frontend_base.rstrip('/')}/invoice/public/{order_id}/{token}"
         
         return Response({
             'url': public_url,
@@ -243,6 +244,8 @@ def invoice_public_url(request, order_id):
 
 
 @api_view(['GET'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def invoice_public_view(request, order_id, token):
     """
     Public endpoint to view invoice data without authentication.
@@ -348,6 +351,8 @@ def invoice_public_view(request, order_id, token):
 
 
 @api_view(['GET'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def invoice_public_download(request, order_id, token):
     """
     Public endpoint to download invoice PDF without authentication.
