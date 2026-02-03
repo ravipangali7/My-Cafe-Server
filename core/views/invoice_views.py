@@ -36,6 +36,18 @@ def verify_invoice_token(order_id: int, token: str) -> bool:
     return hmac.compare_digest(token, expected_token)
 
 
+def _get_order_payment_method(order) -> str:
+    """Derive payment method from order's transactions (Order model has no payment_method field)."""
+    txn = order.transactions.filter(status='success').first()
+    if not txn:
+        return "Pending"
+    if getattr(txn, 'ug_order_id', None):
+        return "Online"
+    if getattr(txn, 'vpa', None) and txn.vpa:
+        return "UPI"
+    return "Other"
+
+
 @api_view(['POST', 'GET'])
 def invoice_generate(request, order_id):
     """
@@ -260,11 +272,12 @@ def invoice_public_view(request, order_id, token):
         )
     
     try:
-        # Get order with related data
+        # Get order with related data (prefetch transactions for payment_method derivation)
         order = Order.objects.prefetch_related(
-            'items__product', 
+            'items__product',
             'items__product_variant__unit',
-            'user'
+            'user',
+            'transactions',
         ).get(id=order_id)
         
         # Get or create invoice
@@ -324,11 +337,11 @@ def invoice_public_view(request, order_id, token):
             'order': {
                 'id': order.id,
                 'status': order.status,
-                'payment_method': order.payment_method,
+                'payment_method': _get_order_payment_method(order),
                 'total': str(order.total),
-                'remarks': order.remarks,
-                'customer_name': order.customer_name,
-                'customer_phone': order.customer_phone,
+                'remarks': '',
+                'customer_name': order.name,
+                'customer_phone': order.phone or '',
                 'created_at': order.created_at.isoformat(),
             },
             'items': items,
