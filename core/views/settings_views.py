@@ -649,6 +649,62 @@ def vendor_dashboard_data(request):
         # Recent orders (last 20)
         recent_orders = Order.objects.filter(user=user).order_by('-created_at')[:20]
         recent_orders_serializer = OrderSerializer(recent_orders, many=True, context={'request': request})
+
+        # Pending orders (list for dashboard sections)
+        pending_orders_qs = Order.objects.filter(user=user, status='pending').order_by('-created_at')[:20]
+        pending_orders_serializer = OrderSerializer(pending_orders_qs, many=True, context={'request': request})
+
+        # Pending QR stand orders (list for dashboard sections)
+        pending_qr_orders_qs = QRStandOrder.objects.filter(vendor=user, order_status='pending').order_by('-created_at')[:20]
+        pending_qr_orders_serializer = QRStandOrderSerializer(pending_qr_orders_qs, many=True, context={'request': request})
+
+        # Total products and total QR stand orders
+        total_products = Product.objects.filter(user=user).count()
+        total_qr_stand_orders = QRStandOrder.objects.filter(vendor=user).count()
+
+        # Top revenue products (top 10 by total revenue)
+        top_revenue_products_qs = OrderItem.objects.filter(
+            order__user=user,
+            order__status__in=['accepted', 'completed']
+        ).values(
+            'product__id',
+            'product__name',
+            'product__image'
+        ).annotate(
+            total_quantity=Sum('quantity'),
+            total_revenue=Sum('total')
+        ).order_by('-total_revenue')[:10]
+        top_revenue_products_list = []
+        for item in top_revenue_products_qs:
+            top_revenue_products_list.append({
+                'product_id': item['product__id'],
+                'product_name': item['product__name'],
+                'product_image': item['product__image'],
+                'total_quantity': item['total_quantity'],
+                'total_revenue': str(item['total_revenue'] or Decimal('0'))
+            })
+
+        # Repeat customers (order_count >= 2, all time for vendor)
+        orders_qs = Order.objects.filter(user=user)
+        customer_agg = (
+            orders_qs.values('name', 'phone', 'country_code')
+            .annotate(
+                order_count=Count('id'),
+                total_spend=Sum('total'),
+            )
+            .order_by('-total_spend')
+        )
+        repeat_customers_agg = [c for c in customer_agg if c['order_count'] >= 2]
+        repeat_customers = []
+        for c in repeat_customers_agg:
+            repeat_customers.append({
+                'id': 0,
+                'name': c['name'] or '—',
+                'phone': c['phone'] or '—',
+                'country_code': c.get('country_code') or '91',
+                'order_count': c['order_count'],
+                'total_spend': int(Decimal(str(c['total_spend'] or 0))),
+            })
         
         return Response({
             'subscription': {
@@ -661,15 +717,21 @@ def vendor_dashboard_data(request):
             'transactions': transaction_serializer.data,
             'pending_orders_count': pending_orders_count,
             'pending_qr_orders_count': pending_qr_orders_count,
+            'pending_orders': pending_orders_serializer.data,
+            'pending_qr_orders': pending_qr_orders_serializer.data,
             'payment_status_breakdown': payment_status_breakdown,
             'subscription_history': subscription_history,
             'total_orders': total_orders,
             'total_sales': str(total_sales),
             'total_revenue': str(total_revenue),
+            'total_products': total_products,
+            'total_qr_stand_orders': total_qr_stand_orders,
             'finance_summary': finance_summary,
             'best_selling_products': best_selling_products_list,
+            'top_revenue_products': top_revenue_products_list,
             'order_trends': order_trends,
-            'recent_orders': recent_orders_serializer.data
+            'recent_orders': recent_orders_serializer.data,
+            'repeat_customers': repeat_customers,
         }, status=status.HTTP_200_OK)
         
     except Exception as e:
