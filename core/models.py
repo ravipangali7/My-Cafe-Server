@@ -219,7 +219,7 @@ class Order(models.Model):
     user = models.ForeignKey(User, related_name="orders", on_delete=models.DO_NOTHING)
     phone = models.CharField(max_length=15)
     country_code = models.CharField(max_length=5, default='91')
-    table_no = models.CharField(max_length=10)
+    table_no = models.CharField(max_length=10, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     payment_status = models.CharField(
         max_length=20, choices=PAYMENT_STATUS_CHOICES, default="pending"
@@ -297,6 +297,9 @@ class Transaction(models.Model):
     ug_txn_date = models.DateField(blank=True, null=True)
     ug_status = models.CharField(max_length=20, blank=True, null=True)
     ug_remark = models.TextField(blank=True, null=True)
+    
+    # Order payload for "initiate order payment" flow: order created only on payment success
+    order_payload = models.JSONField(blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

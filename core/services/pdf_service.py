@@ -217,7 +217,7 @@ def generate_order_invoice(order):
     to_section = f"""
     <b>TO</b><br/><br/>
     <b>{order.name}</b><br/>
-    {order.table_no}
+    {order.table_no or ''}
     """
     left_panel_elements.append(Paragraph(to_section, white_text_style))
     

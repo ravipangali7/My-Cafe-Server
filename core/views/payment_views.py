@@ -26,7 +26,7 @@ def get_ist_date():
     ist_now = datetime.utcnow() + timedelta(hours=5, minutes=30)
     return ist_now.date()
 
-from ..models import Transaction, Order, QRStandOrder, User, SuperSetting
+from ..models import Transaction, Order, OrderItem, QRStandOrder, User, SuperSetting, Product, ProductVariant
 from ..utils.ug_payment import UGPaymentClient
 from ..utils.transaction_helpers import (
     process_order_transactions,
@@ -34,6 +34,7 @@ from ..utils.transaction_helpers import (
     process_subscription_payment,
     process_qr_stand_payment
 )
+from ..services.fcm_service import send_incoming_order_to_vendor
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,129 @@ def initiate_payment(request):
         )
 
 
+@api_view(['POST'])
+def initiate_order_payment(request):
+    """
+    Initiate payment for a menu order without creating the order first.
+    Order is created only on payment success (in payment_callback).
+    Request body: name, phone, table_no (optional), vendor_phone, total, items (JSON), fcm_token (optional).
+    Returns: payment_url, ug_client_txn_id.
+    """
+    try:
+        if request.content_type and 'application/json' in request.content_type:
+            data = json.loads(request.body)
+        else:
+            data = request.POST
+
+        name = data.get('name')
+        phone = data.get('phone')
+        table_no = data.get('table_no') or ''
+        vendor_phone = data.get('vendor_phone')
+        total = data.get('total')
+        items_data = data.get('items', '[]')
+        fcm_token = data.get('fcm_token') or ''
+
+        if not name or not phone:
+            return Response(
+                {'error': 'Name and phone are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not vendor_phone:
+            return Response(
+                {'error': 'vendor_phone is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not total:
+            return Response(
+                {'error': 'total is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            order_user = User.objects.get(phone=vendor_phone, is_active=True)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Vendor not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        settings = SuperSetting.objects.first()
+        transaction_fee = settings.per_transaction_fee if settings else 10
+        order_amount = Decimal(str(total))
+        total_with_fee = order_amount + Decimal(str(transaction_fee))
+
+        order_payload = {
+            'name': name,
+            'phone': phone,
+            'table_no': table_no or '',
+            'vendor_phone': vendor_phone,
+            'total': str(total),
+            'items': items_data if isinstance(items_data, str) else json.dumps(items_data),
+            'fcm_token': fcm_token,
+        }
+
+        ist_date = get_ist_date()
+        transaction = Transaction.objects.create(
+            user=order_user,
+            order=None,
+            qr_stand_order=None,
+            amount=total_with_fee,
+            status='pending',
+            transaction_type='in',
+            transaction_category=PAYMENT_TYPE_ORDER,
+            is_system=False,
+            remarks='UG Order payment (order will be created on success)',
+            ug_txn_date=ist_date,
+            ug_status='created',
+            order_payload=order_payload,
+        )
+
+        ug_client = UGPaymentClient()
+        client_txn_id = ug_client.generate_client_txn_id('ORD', transaction.id)
+        redirect_url = ug_client.get_redirect_url()
+        p_info = f"Order payment - My Cafe"
+
+        result = ug_client.create_order(
+            amount=str(total_with_fee),
+            customer_name=name,
+            customer_mobile=str(phone).strip(),
+            customer_email=f"{phone}@mycafe.com",
+            redirect_url=redirect_url,
+            p_info=p_info,
+            client_txn_id=client_txn_id,
+            udf1=str(transaction.id),
+            udf2=PAYMENT_TYPE_ORDER,
+            udf3=str(order_user.id),
+        )
+
+        if not result['success']:
+            transaction.delete()
+            return Response(
+                {'error': result.get('message', 'Failed to create payment')},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        transaction.ug_order_id = result.get('order_id')
+        transaction.ug_client_txn_id = client_txn_id
+        transaction.ug_payment_url = result.get('payment_url')
+        transaction.save(update_fields=['ug_order_id', 'ug_client_txn_id', 'ug_payment_url'])
+
+        return Response({
+            'success': True,
+            'payment_url': result['payment_url'],
+            'ug_client_txn_id': client_txn_id,
+            'transaction_id': transaction.id,
+            'message': 'Payment initiated successfully',
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error(f"Error initiating order payment: {str(e)}")
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
 @api_view(['GET'])
 @authentication_classes([])  # Allow unauthenticated access - called from frontend callback
 @permission_classes([AllowAny])
@@ -367,37 +491,86 @@ def verify_payment(request, client_txn_id):
                        f"transaction_category='{transaction.transaction_category}', "
                        f"resolved_payment_type='{payment_type}'")
             
-            if payment_type == PAYMENT_TYPE_ORDER and transaction.order:
-                # Update order payment status
-                transaction.order.payment_status = 'paid'
-                transaction.order.save()
-                
-                # Create order transactions only on payment success
-                # Get transaction fee from settings
-                settings = SuperSetting.objects.first()
-                transaction_fee = settings.per_transaction_fee if settings else 10
-                
-                # Calculate order amount (total - transaction fee)
-                order_amount = transaction.amount - Decimal(str(transaction_fee))
-                
-                # Create transactions with payment data from UG response
-                try:
-                    process_order_transactions(
-                        order=transaction.order,
-                        vendor=transaction.user,
-                        order_amount=order_amount,
-                        transaction_fee=transaction_fee,
-                        payment_data={
-                            'utr': transaction.utr,
-                            'vpa': transaction.vpa,
-                            'payer_name': transaction.payer_name
-                        }
-                    )
-                    logger.info(f"Order #{transaction.order.id} transactions created on payment success")
-                except Exception as e:
-                    logger.error(f"Failed to create order transactions: {str(e)}")
-                
-                logger.info(f"Order #{transaction.order.id} marked as paid")
+            if payment_type == PAYMENT_TYPE_ORDER:
+                if transaction.order is None and transaction.order_payload:
+                    # Create order from payload (initiate-order flow: order only after payment success)
+                    try:
+                        payload = transaction.order_payload
+                        order_user = transaction.user
+                        order = Order.objects.create(
+                            name=payload['name'],
+                            phone=payload['phone'],
+                            table_no=payload.get('table_no') or '',
+                            status='pending',
+                            payment_status='paid',
+                            total=transaction.amount,
+                            fcm_token=payload.get('fcm_token') or '',
+                            user=order_user
+                        )
+                        items_list = json.loads(payload['items']) if isinstance(payload['items'], str) else payload['items']
+                        for item_data in items_list:
+                            product_id = item_data.get('product_id')
+                            product_variant_id = item_data.get('product_variant_id')
+                            quantity = item_data.get('quantity', 1)
+                            price = item_data.get('price', '0')
+                            if product_id and product_variant_id:
+                                try:
+                                    product = Product.objects.get(id=product_id, user=order_user)
+                                    product_variant = ProductVariant.objects.get(id=product_variant_id, product=product)
+                                    item_total = Decimal(str(price)) * int(quantity)
+                                    OrderItem.objects.create(
+                                        order=order,
+                                        product=product,
+                                        product_variant=product_variant,
+                                        price=Decimal(str(price)),
+                                        quantity=int(quantity),
+                                        total=item_total
+                                    )
+                                except (Product.DoesNotExist, ProductVariant.DoesNotExist):
+                                    pass
+                        transaction.order = order
+                        transaction.save(update_fields=['order'])
+                        settings = SuperSetting.objects.first()
+                        transaction_fee = settings.per_transaction_fee if settings else 10
+                        order_amount = transaction.amount - Decimal(str(transaction_fee))
+                        process_order_transactions(
+                            order=order,
+                            vendor=order_user,
+                            order_amount=order_amount,
+                            transaction_fee=transaction_fee,
+                            payment_data={
+                                'utr': transaction.utr,
+                                'vpa': transaction.vpa,
+                                'payer_name': transaction.payer_name
+                            }
+                        )
+                        send_incoming_order_to_vendor(order)
+                        logger.info(f"Order #{order.id} created on payment success (verify_payment)")
+                    except Exception as e:
+                        logger.error(f"Failed to create order from payload in verify_payment: {str(e)}")
+                elif transaction.order:
+                    # Legacy: order already existed
+                    transaction.order.payment_status = 'paid'
+                    transaction.order.save()
+                    settings = SuperSetting.objects.first()
+                    transaction_fee = settings.per_transaction_fee if settings else 10
+                    order_amount = transaction.amount - Decimal(str(transaction_fee))
+                    try:
+                        process_order_transactions(
+                            order=transaction.order,
+                            vendor=transaction.user,
+                            order_amount=order_amount,
+                            transaction_fee=transaction_fee,
+                            payment_data={
+                                'utr': transaction.utr,
+                                'vpa': transaction.vpa,
+                                'payer_name': transaction.payer_name
+                            }
+                        )
+                        logger.info(f"Order #{transaction.order.id} transactions created on payment success")
+                    except Exception as e:
+                        logger.error(f"Failed to create order transactions: {str(e)}")
+                    logger.info(f"Order #{transaction.order.id} marked as paid")
             
             elif payment_type == PAYMENT_TYPE_DUES or payment_type == 'due_paid':
                 # Process due payment (update due balance)
@@ -578,30 +751,85 @@ def payment_callback(request):
                            f"has_qr_stand_order={transaction.qr_stand_order is not None}")
                 
                 # Update related entities and create transactions
-                if transaction.order and payment_type == PAYMENT_TYPE_ORDER:
-                    transaction.order.payment_status = 'paid'
-                    transaction.order.save()
-                    
-                    # Create order transactions only on payment success
-                    settings = SuperSetting.objects.first()
-                    transaction_fee = settings.per_transaction_fee if settings else 10
-                    order_amount = transaction.amount - Decimal(str(transaction_fee))
-                    
-                    try:
-                        process_order_transactions(
-                            order=transaction.order,
-                            vendor=transaction.user,
-                            order_amount=order_amount,
-                            transaction_fee=transaction_fee,
-                            payment_data={
-                                'utr': transaction.utr,
-                                'vpa': transaction.vpa,
-                                'payer_name': transaction.payer_name
-                            }
-                        )
-                        logger.info(f"Order #{transaction.order.id} transactions created on payment success")
-                    except Exception as e:
-                        logger.error(f"Failed to create order transactions: {str(e)}")
+                if payment_type == PAYMENT_TYPE_ORDER:
+                    if transaction.order is None and transaction.order_payload:
+                        # Create order from payload (initiate-order flow: order only after payment success)
+                        try:
+                            payload = transaction.order_payload
+                            order_user = transaction.user
+                            order = Order.objects.create(
+                                name=payload['name'],
+                                phone=payload['phone'],
+                                table_no=payload.get('table_no') or '',
+                                status='pending',
+                                payment_status='paid',
+                                total=transaction.amount,
+                                fcm_token=payload.get('fcm_token') or '',
+                                user=order_user
+                            )
+                            items_list = json.loads(payload['items']) if isinstance(payload['items'], str) else payload['items']
+                            for item_data in items_list:
+                                product_id = item_data.get('product_id')
+                                product_variant_id = item_data.get('product_variant_id')
+                                quantity = item_data.get('quantity', 1)
+                                price = item_data.get('price', '0')
+                                if product_id and product_variant_id:
+                                    try:
+                                        product = Product.objects.get(id=product_id, user=order_user)
+                                        product_variant = ProductVariant.objects.get(id=product_variant_id, product=product)
+                                        item_total = Decimal(str(price)) * int(quantity)
+                                        OrderItem.objects.create(
+                                            order=order,
+                                            product=product,
+                                            product_variant=product_variant,
+                                            price=Decimal(str(price)),
+                                            quantity=int(quantity),
+                                            total=item_total
+                                        )
+                                    except (Product.DoesNotExist, ProductVariant.DoesNotExist):
+                                        pass
+                            transaction.order = order
+                            transaction.save(update_fields=['order'])
+                            settings = SuperSetting.objects.first()
+                            transaction_fee = settings.per_transaction_fee if settings else 10
+                            order_amount = transaction.amount - Decimal(str(transaction_fee))
+                            process_order_transactions(
+                                order=order,
+                                vendor=order_user,
+                                order_amount=order_amount,
+                                transaction_fee=transaction_fee,
+                                payment_data={
+                                    'utr': transaction.utr,
+                                    'vpa': transaction.vpa,
+                                    'payer_name': transaction.payer_name
+                                }
+                            )
+                            send_incoming_order_to_vendor(order)
+                            logger.info(f"Order #{order.id} created on payment success (initiate-order flow)")
+                        except Exception as e:
+                            logger.error(f"Failed to create order from payload: {str(e)}")
+                    elif transaction.order:
+                        # Legacy: order already existed before payment
+                        transaction.order.payment_status = 'paid'
+                        transaction.order.save()
+                        settings = SuperSetting.objects.first()
+                        transaction_fee = settings.per_transaction_fee if settings else 10
+                        order_amount = transaction.amount - Decimal(str(transaction_fee))
+                        try:
+                            process_order_transactions(
+                                order=transaction.order,
+                                vendor=transaction.user,
+                                order_amount=order_amount,
+                                transaction_fee=transaction_fee,
+                                payment_data={
+                                    'utr': transaction.utr,
+                                    'vpa': transaction.vpa,
+                                    'payer_name': transaction.payer_name
+                                }
+                            )
+                            logger.info(f"Order #{transaction.order.id} transactions created on payment success")
+                        except Exception as e:
+                            logger.error(f"Failed to create order transactions: {str(e)}")
                 
                 if transaction.qr_stand_order and payment_type == PAYMENT_TYPE_QR_STAND:
                     logger.info(f"[Callback] Updating QR Stand Order #{transaction.qr_stand_order.id} payment_status to 'paid'")

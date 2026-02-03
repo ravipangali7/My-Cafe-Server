@@ -234,7 +234,7 @@ def order_report(request):
                 'id': order.id,
                 'name': order.name,
                 'phone': order.phone,
-                'table_no': order.table_no,
+                'table_no': order.table_no or '',
                 'status': order.status,
                 'payment_status': order.payment_status,
                 'total': str(order.total),

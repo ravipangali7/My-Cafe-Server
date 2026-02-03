@@ -168,7 +168,7 @@ def send_incoming_order_to_vendor(order):
     }
 
     title = "New order"
-    body = f"Order #{order.id} - {order.name or 'Customer'} - Table {order.table_no} - ₹{order.total}"
+    body = f"Order #{order.id} - {order.name or 'Customer'} - Table {order.table_no or 'N/A'} - ₹{order.total}"
 
     if not initialize_firebase():
         return

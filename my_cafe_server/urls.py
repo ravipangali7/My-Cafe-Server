@@ -40,7 +40,7 @@ from core.views import (
     # Settings views
     get_settings, update_settings, users_stats, get_public_settings,
     # Stats views
-    product_stats, order_stats, category_stats, transaction_stats, unit_stats, vendor_stats, qr_stand_stats,
+    product_stats, order_stats, category_stats, transaction_stats, unit_stats, vendor_stats, vendor_stats_by_id, qr_stand_stats,
     # Report views
     cafe_report, order_report, product_report, finance_report,
     vendor_report, shareholder_report, customer_report,
@@ -58,7 +58,7 @@ from core.views.invoice_views import invoice_generate, invoice_download, invoice
 from core.views.shareholders_views import shareholders_list, shareholder_detail, shareholder_update
 from core.views.withdrawals_views import withdrawals_list, withdrawal_create, withdrawal_detail, withdrawal_approve, withdrawal_reject, withdrawal_update, withdrawal_delete
 from core.views.dues_views import dues_list, due_detail, due_pay, due_status
-from core.views.payment_views import initiate_payment, verify_payment, payment_callback, payment_status_by_order, payment_status_by_qr_stand
+from core.views.payment_views import initiate_payment, initiate_order_payment, verify_payment, payment_callback, payment_status_by_order, payment_status_by_qr_stand
 from core.views.vendor_customer_views import vendor_customer_list, vendor_customer_create, vendor_customer_detail, vendor_customer_edit, vendor_customer_delete
 from core.views.whatsapp_notification_views import whatsapp_notification_list, whatsapp_notification_detail, whatsapp_notification_create
 
@@ -101,6 +101,7 @@ urlpatterns = [
     path('api/stats/transactions/', transaction_stats, name='transaction_stats'),
     path('api/stats/units/', unit_stats, name='unit_stats'),
     path('api/stats/vendors/', vendor_stats, name='vendor_stats'),
+    path('api/stats/vendor/<int:id>/', vendor_stats_by_id, name='vendor_stats_by_id'),
     path('api/stats/qr-stands/', qr_stand_stats, name='qr_stand_stats'),
     
     # Report endpoints
@@ -215,6 +216,7 @@ urlpatterns = [
     
     # Payment endpoints (UG Gateway)
     path('api/payment/initiate/', initiate_payment, name='initiate_payment'),
+    path('api/payment/initiate-order/', initiate_order_payment, name='initiate_order_payment'),
     path('api/payment/verify/<str:client_txn_id>/', verify_payment, name='verify_payment'),
     path('api/payment/callback/', payment_callback, name='payment_callback'),
     path('api/payment/status/order/<int:order_id>/', payment_status_by_order, name='payment_status_by_order'),

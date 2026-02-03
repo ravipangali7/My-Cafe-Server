@@ -357,6 +357,59 @@ def vendor_stats(request):
 
 
 @api_view(['GET'])
+def vendor_stats_by_id(request, id):
+    """Get per-vendor statistics. Vendor can see own; superuser can see any."""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    if request.user.id != id and not request.user.is_superuser:
+        return Response(
+            {'error': 'You can only view your own vendor statistics'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    try:
+        try:
+            vendor = User.objects.get(id=id)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Vendor not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        # Transaction counts/amounts for this vendor
+        txn_qs = TransactionHistory.objects.filter(user=vendor)
+        whatsapp_count = txn_qs.filter(transaction_category='whatsapp_usage').count()
+        txn_fee_agg = txn_qs.filter(transaction_category='transaction_fee').aggregate(s=Sum('amount'))
+        sub_fee_agg = txn_qs.filter(transaction_category='subscription_fee').aggregate(s=Sum('amount'))
+        transaction_fee = (txn_fee_agg['s'] or Decimal('0'))
+        subscription_fee = (sub_fee_agg['s'] or Decimal('0'))
+        # Orders
+        order_qs = Order.objects.filter(user=vendor)
+        total_orders = order_qs.count()
+        total_revenue_agg = order_qs.aggregate(s=Sum('total'))
+        total_revenue = (total_revenue_agg['s'] or Decimal('0'))
+        # QR stand
+        qr_qs = QRStandOrder.objects.filter(vendor=vendor)
+        qr_stand_orders = qr_qs.count()
+        qr_pending_orders = qr_qs.filter(order_status='pending').count()
+        return Response({
+            'whatsapp_usage': whatsapp_count,
+            'transaction_fee': str(transaction_fee),
+            'subscription_fee': str(subscription_fee),
+            'qr_stand_orders': qr_stand_orders,
+            'qr_pending_orders': qr_pending_orders,
+            'total_orders': total_orders,
+            'total_revenue': str(total_revenue),
+        }, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
 def qr_stand_stats(request):
     """Get QR stand order statistics. Vendors see own; superuser sees all."""
     if not request.user.is_authenticated:

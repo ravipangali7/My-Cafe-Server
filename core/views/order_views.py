@@ -110,7 +110,7 @@ def order_create(request):
         
         name = data.get('name')
         phone = data.get('phone')
-        table_no = data.get('table_no')
+        table_no = data.get('table_no') or ''
         status_val = data.get('status', 'pending')
         payment_status = data.get('payment_status', 'pending')
         fcm_token = data.get('fcm_token', '')
@@ -118,9 +118,9 @@ def order_create(request):
         total = data.get('total', '0')
         vendor_phone = data.get('vendor_phone')
         
-        if not name or not phone or not table_no:
+        if not name or not phone:
             return Response(
-                {'error': 'Name, phone, and table_no are required'},
+                {'error': 'Name and phone are required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -148,11 +148,11 @@ def order_create(request):
         order_amount = Decimal(str(total))
         total_with_fee = order_amount + Decimal(str(transaction_fee))
         
-        # Create order with total including transaction fee
+        # Create order with total including transaction fee (table_no optional)
         order = Order.objects.create(
             name=name,
             phone=phone,
-            table_no=table_no,
+            table_no=table_no or '',
             status=status_val,
             payment_status=payment_status,
             total=total_with_fee,
@@ -337,7 +337,7 @@ def order_edit(request, id):
                     },
                     'ready': {
                         'title': 'Order Ready',
-                        'body': f'Your Order #{order.id} is ready! Please collect from table {order.table_no}'
+                        'body': f'Your Order #{order.id} is ready! Please collect from table {order.table_no or "N/A"}'
                     },
                     'rejected': {
                         'title': 'Order Rejected',
@@ -345,7 +345,7 @@ def order_edit(request, id):
                     },
                     'completed': {
                         'title': 'Order Completed',
-                        'body': f'Your Order #{order.id} is ready! Please collect from table {order.table_no}'
+                        'body': f'Your Order #{order.id} is ready! Please collect from table {order.table_no or "N/A"}'
                     }
                 }
                 message = status_messages.get(status_val, {
@@ -359,7 +359,7 @@ def order_edit(request, id):
                     data={
                         'order_id': str(order.id),
                         'status': str(status_val),
-                        'table_no': str(order.table_no)
+                        'table_no': str(order.table_no or '')
                     }
                 )
             except Exception as e:
