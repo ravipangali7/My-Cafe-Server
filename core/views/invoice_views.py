@@ -300,7 +300,7 @@ def invoice_public_view(request, order_id, token):
             if item.product_variant:
                 item_data['variant'] = {
                     'unit_name': item.product_variant.unit.name if item.product_variant.unit else None,
-                    'unit_value': item.product_variant.unit_value,
+                    'unit_value': getattr(item.product_variant, 'unit_value', 1),
                 }
             items.append(item_data)
         
