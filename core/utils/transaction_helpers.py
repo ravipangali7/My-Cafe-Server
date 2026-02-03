@@ -17,7 +17,7 @@ All transaction creation functions support UG-specific fields through **extra_fi
 """
 
 from decimal import Decimal
-from ..models import Transaction, SuperSetting
+from ..models import Transaction, SuperSetting, User
 
 
 def create_dual_transaction(
@@ -424,7 +424,7 @@ def process_whatsapp_usage(vendor, cost):
     Creates dual transactions and updates vendor's due balance.
     
     Args:
-        vendor: Vendor user instance
+        vendor: Vendor user instance (or id)
         cost: WhatsApp message cost
     
     Returns:
@@ -432,7 +432,12 @@ def process_whatsapp_usage(vendor, cost):
     """
     if cost <= 0:
         return None
-    
+    # Re-fetch user from DB so we use a fresh instance (avoids stale ref in background thread)
+    try:
+        vendor = User.objects.get(pk=vendor.pk)
+    except (User.DoesNotExist, AttributeError):
+        return None
+
     # Create dual transaction
     txn_user, txn_system = create_dual_transaction(
         user=vendor,

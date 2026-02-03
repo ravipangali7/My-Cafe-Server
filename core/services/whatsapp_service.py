@@ -364,7 +364,8 @@ def send_marketing_whatsapp(notification):
         n.status = WhatsAppNotification.STATUS_SENT if all_success else WhatsAppNotification.STATUS_FAILED
         n.save(update_fields=['sent_count', 'status', 'updated_at'])
 
-    if all_success:
+    # Charge for successfully sent messages (even if some failed), so transactions and due balance reflect actual usage
+    if sent > 0:
         try:
             super_setting = SuperSetting.objects.filter(id=1).first()
             if super_setting and getattr(super_setting, 'is_whatsapp_usage', True):

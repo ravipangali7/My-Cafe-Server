@@ -1,7 +1,7 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from django.db.models import Q
+from django.db.models import Q, Sum
 from django.core.paginator import Paginator
 import json
 import logging
@@ -50,6 +50,27 @@ def withdrawals_list(request):
                 Q(user__name__icontains=search) | Q(user__phone__icontains=search)
             )
         
+        # Stats from full queryset (before status filter) so cards show real totals
+        base_queryset = queryset
+        stats_total = base_queryset.count()
+        stats_pending = base_queryset.filter(status='pending').count()
+        stats_approved = base_queryset.filter(status='approved').count()
+        stats_failed = base_queryset.filter(status='failed').count()
+        amount_agg = base_queryset.aggregate(
+            total=Sum('amount'),
+            pending_amt=Sum('amount', filter=Q(status='pending')),
+            approved_amt=Sum('amount', filter=Q(status='approved')),
+            failed_amt=Sum('amount', filter=Q(status='failed')),
+        )
+        total_amount = int(amount_agg['total'] or 0)
+        pending_amount = int(amount_agg['pending_amt'] or 0)
+        approved_amount = int(amount_agg['approved_amt'] or 0)
+        failed_amount = int(amount_agg['failed_amt'] or 0)
+        
+        # Apply status filter for list
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
         # Order by created_at (newest first)
         queryset = queryset.order_by('-created_at')
         
@@ -66,11 +87,6 @@ def withdrawals_list(request):
         
         serializer = ShareholderWithdrawalSerializer(page_obj, many=True, context={'request': request})
         
-        # Get counts by status
-        pending_count = queryset.filter(status='pending').count()
-        approved_count = queryset.filter(status='approved').count()
-        failed_count = queryset.filter(status='failed').count()
-        
         return Response({
             'withdrawals': serializer.data,
             'count': paginator.count,
@@ -78,9 +94,14 @@ def withdrawals_list(request):
             'total_pages': total_pages,
             'page_size': page_size,
             'stats': {
-                'pending': pending_count,
-                'approved': approved_count,
-                'failed': failed_count
+                'total': stats_total,
+                'pending': stats_pending,
+                'approved': stats_approved,
+                'failed': stats_failed,
+                'total_amount': total_amount,
+                'pending_amount': pending_amount,
+                'approved_amount': approved_amount,
+                'failed_amount': failed_amount,
             }
         }, status=status.HTTP_200_OK)
         

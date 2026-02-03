@@ -2,7 +2,8 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from django.db.models import Count, Sum, Q
-from ..models import Product, Order, Category, TransactionHistory, Unit, User
+from django.utils import timezone
+from ..models import Product, Order, OrderItem, Category, TransactionHistory, Unit, User, SuperSetting
 from decimal import Decimal
 
 
@@ -43,10 +44,19 @@ def product_stats(request):
             count=Count('id')
         )
         
+        # Top selling: count of distinct products (from this queryset) that appear in OrderItem
+        product_ids = list(queryset.values_list('id', flat=True))
+        top_selling = 0
+        if product_ids:
+            top_selling = OrderItem.objects.filter(
+                product_id__in=product_ids
+            ).values('product').distinct().count()
+        
         return Response({
             'total': total,
             'active': active,
             'inactive': inactive,
+            'top_selling': top_selling,
             'by_category': list(by_category),
             'by_type': list(by_type)
         }, status=status.HTTP_200_OK)
@@ -91,10 +101,15 @@ def order_stats(request):
         
         total = queryset.count()
         
-        # Orders by status
-        by_status = queryset.values('status').annotate(
-            count=Count('id')
-        )
+        # Orders by status (flat keys for frontend)
+        by_status = queryset.values('status').annotate(count=Count('id'))
+        status_map = {row['status']: row['count'] for row in by_status}
+        pending = status_map.get('pending', 0)
+        accepted = status_map.get('accepted', 0)
+        running = status_map.get('running', 0)
+        ready = status_map.get('ready', 0)
+        rejected = status_map.get('rejected', 0)
+        completed = status_map.get('completed', 0)
         
         # Orders by payment status
         by_payment_status = queryset.values('payment_status').annotate(
@@ -115,6 +130,12 @@ def order_stats(request):
             'total': total,
             'revenue': str(revenue),
             'paid_revenue': str(paid_revenue),
+            'pending': pending,
+            'accepted': accepted,
+            'running': running,
+            'ready': ready,
+            'rejected': rejected,
+            'completed': completed,
             'by_status': list(by_status),
             'by_payment_status': list(by_payment_status)
         }, status=status.HTTP_200_OK)
@@ -193,7 +214,7 @@ def transaction_stats(request):
         else:
             queryset = TransactionHistory.objects.filter(user=request.user)
         
-        # Apply date filters
+        # Apply date filters (align with list when frontend passes them)
         if start_date:
             queryset = queryset.filter(created_at__gte=start_date)
         if end_date:
@@ -201,21 +222,38 @@ def transaction_stats(request):
         
         total = queryset.count()
         
-        # Transactions by status
-        by_status = queryset.values('status').annotate(
-            count=Count('id'),
-            total_amount=Sum('amount')
-        )
+        # Status counts (flat keys for frontend)
+        by_status = queryset.values('status').annotate(count=Count('id'))
+        status_map = {row['status']: row['count'] for row in by_status}
+        pending = status_map.get('pending', 0)
+        success = status_map.get('success', 0)
+        failed = status_map.get('failed', 0)
         
-        # Total revenue
+        # Total revenue (successful transactions)
         revenue = queryset.filter(status='success').aggregate(
             total_revenue=Sum('amount')
         )['total_revenue'] or Decimal('0')
         
+        # Category counts (transaction_category)
+        by_category = queryset.values('transaction_category').annotate(count=Count('id'))
+        cat_map = {row['transaction_category']: row['count'] for row in by_category}
+        
         return Response({
             'total': total,
+            'total_revenue': str(revenue),
             'revenue': str(revenue),
-            'by_status': list(by_status)
+            'pending': pending,
+            'success': success,
+            'failed': failed,
+            'order': cat_map.get('order', 0),
+            'transaction_fee': cat_map.get('transaction_fee', 0),
+            'subscription_payments': cat_map.get('subscription_fee', 0),
+            'whatsapp_usage': cat_map.get('whatsapp_usage', 0),
+            'qr_stand_orders': cat_map.get('qr_stand_order', 0),
+            'due_payments': cat_map.get('due_paid', 0),
+            'share_distributions': cat_map.get('share_distribution', 0),
+            'shareholder_withdrawals': cat_map.get('share_withdrawal', 0),
+            'by_status': list(queryset.values('status').annotate(count=Count('id'), total_amount=Sum('amount'))),
         }, status=status.HTTP_200_OK)
         
     except Exception as e:
@@ -277,18 +315,38 @@ def vendor_stats(request):
         )
     
     try:
-        queryset = User.objects.all()
+        # Vendors only (exclude superusers from vendor counts)
+        queryset = User.objects.filter(is_superuser=False)
         
         total = queryset.count()
         active = queryset.filter(is_active=True).count()
         inactive = queryset.filter(is_active=False).count()
-        superusers = queryset.filter(is_superuser=True).count()
+        superusers = User.objects.filter(is_superuser=True).count()
+        
+        # KYC and subscription
+        kyc_pending = queryset.filter(kyc_status=User.KYC_PENDING).count()
+        today = timezone.now().date()
+        subscription_expired = queryset.filter(
+            subscription_end_date__lt=today,
+            subscription_end_date__isnull=False
+        ).count()
+        
+        # Due balance
+        due_agg = queryset.aggregate(total_due=Sum('due_balance'))
+        total_due_amount = due_agg['total_due'] or 0
+        setting = SuperSetting.objects.filter(id=1).first()
+        due_threshold = getattr(setting, 'due_threshold', 1000) if setting else 1000
+        due_blocked_vendors = queryset.filter(due_balance__gte=due_threshold).count()
         
         return Response({
             'total': total,
             'active': active,
             'inactive': inactive,
-            'superusers': superusers
+            'superusers': superusers,
+            'kyc_pending': kyc_pending,
+            'subscription_expired': subscription_expired,
+            'total_due_amount': total_due_amount,
+            'due_blocked_vendors': due_blocked_vendors,
         }, status=status.HTTP_200_OK)
         
     except Exception as e:
