@@ -285,6 +285,14 @@ def initiate_order_payment(request):
                 {'error': 'Name and phone are required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        # UG gateway requires customer_mobile to be exactly 10 digits
+        digits = ''.join(c for c in str(phone or '').strip() if c.isdigit())
+        customer_mobile_10 = digits[-10:] if len(digits) >= 10 else digits
+        if len(customer_mobile_10) != 10:
+            return Response(
+                {'error': 'Customer mobile number must be 10 digits'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         if not vendor_phone:
             return Response(
                 {'error': 'vendor_phone is required'},
@@ -311,7 +319,7 @@ def initiate_order_payment(request):
 
         order_payload = {
             'name': name,
-            'phone': phone,
+            'phone': customer_mobile_10,
             'table_no': table_no or '',
             'vendor_phone': vendor_phone,
             'total': str(total),
@@ -343,8 +351,8 @@ def initiate_order_payment(request):
         result = ug_client.create_order(
             amount=str(total_with_fee),
             customer_name=name,
-            customer_mobile=str(phone).strip(),
-            customer_email=f"{phone}@mycafe.com",
+            customer_mobile=customer_mobile_10,
+            customer_email=f"{customer_mobile_10}@mycafe.com",
             redirect_url=redirect_url,
             p_info=p_info,
             client_txn_id=client_txn_id,
