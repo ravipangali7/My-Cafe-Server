@@ -202,6 +202,8 @@ def transaction_stats(request):
         user_id = request.GET.get('user_id')
         start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
+        transaction_type = request.GET.get('transaction_type')
+        is_system = request.GET.get('is_system')
         
         # Filter by user - superusers can see all transactions and filter by user_id
         if request.user.is_superuser:
@@ -212,13 +214,25 @@ def transaction_stats(request):
                 except ValueError:
                     pass
         else:
-            queryset = TransactionHistory.objects.filter(user=request.user)
+            # Non-superusers only see their own transactions AND exclude system transactions
+            queryset = TransactionHistory.objects.filter(user=request.user, is_system=False)
         
         # Apply date filters (align with list when frontend passes them)
         if start_date:
             queryset = queryset.filter(created_at__gte=start_date)
         if end_date:
             queryset = queryset.filter(created_at__lte=end_date)
+        
+        # Apply transaction_type filter (align with list)
+        if transaction_type:
+            queryset = queryset.filter(transaction_type=transaction_type)
+        
+        # is_system filter only applies to superusers (vendors are already filtered to is_system=False)
+        if request.user.is_superuser and is_system is not None and is_system != '':
+            if is_system.lower() in ('true', '1', 'yes'):
+                queryset = queryset.filter(is_system=True)
+            elif is_system.lower() in ('false', '0', 'no'):
+                queryset = queryset.filter(is_system=False)
         
         total = queryset.count()
         
