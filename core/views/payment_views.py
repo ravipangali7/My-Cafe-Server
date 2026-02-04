@@ -263,6 +263,7 @@ def initiate_order_payment(request):
     Initiate payment for a menu order without creating the order first.
     Order is created only on payment success (in payment_callback).
     Request body: name, phone, table_no (optional), vendor_phone, total, items (JSON), fcm_token (optional).
+    Phone is passed as-is to the payment gateway with no length validation.
     Returns: payment_url, ug_client_txn_id.
     """
     try:

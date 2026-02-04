@@ -156,9 +156,12 @@ def send_incoming_order_to_vendor(order):
         }
         for item in items_qs
     ]
+    from ..utils.order_action_token import generate_order_action_token
+    action_token = generate_order_action_token(str(order.id))
     data_dict = {
         "type": "incoming_order",
         "order_id": str(order.id),
+        "action_token": action_token,
         "total": str(order.total),
         "items_count": str(items_count),
         "name": str(order.name or ""),

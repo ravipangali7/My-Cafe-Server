@@ -12,6 +12,7 @@ from ..serializers import OrderSerializer, OrderItemSerializer
 from ..services.fcm_service import send_fcm_notification, send_incoming_order_to_vendor, send_dismiss_incoming_to_vendor
 from ..services.pdf_service import generate_order_invoice
 from ..services.whatsapp_service import send_order_bill_whatsapp, send_order_ready_whatsapp
+from ..utils.order_action_token import verify_order_action_token
 # NOTE: process_order_transactions is now called in payment_views.py on payment success
 
 logger = logging.getLogger(__name__)
@@ -503,6 +504,101 @@ def order_edit(request, id):
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+def order_status_from_notification(request, id):
+    """
+    Update order status from notification action (accept/reject) using a short-lived token.
+    No session required. Body: JSON { "status": "accepted"|"rejected", "token": "<action_token>", "reject_reason"?: "..." }.
+    """
+    try:
+        try:
+            data = json.loads(request.body) if request.body else {}
+        except (ValueError, TypeError):
+            data = {}
+        status_val = data.get('status', '').strip().lower()
+        token = data.get('token', '').strip()
+        reject_reason = data.get('reject_reason', '').strip() or None
+
+        if status_val not in ('accepted', 'rejected'):
+            return Response(
+                {'error': 'status must be "accepted" or "rejected"'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not token:
+            return Response(
+                {'error': 'token is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        order_id_str = str(id)
+        if not verify_order_action_token(order_id_str, token):
+            return Response(
+                {'error': 'Invalid or expired token'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        order = Order.objects.get(id=id)
+        old_status = order.status
+        order.status = status_val
+        if reject_reason is not None:
+            order.reject_reason = reject_reason
+        order.save()
+
+        if status_val != old_status and status_val in ('accepted', 'rejected'):
+            try:
+                send_dismiss_incoming_to_vendor(order.user, order.id, status_val)
+            except Exception as e:
+                logger.error(f'Failed to send dismiss_incoming FCM for order {order.id}: {str(e)}')
+
+        if status_val == 'accepted' and status_val != old_status:
+            try:
+                invoice, _ = Invoice.objects.get_or_create(
+                    order=order,
+                    defaults={
+                        'invoice_number': f'INV-{order.id}-{datetime.now().strftime("%Y%m%d%H%M%S")}',
+                        'total_amount': order.total
+                    }
+                )
+                if not invoice.pdf_file or not invoice.pdf_file.name:
+                    pdf_file = generate_order_invoice(order)
+                    invoice.pdf_file.save(pdf_file.name, pdf_file, save=True)
+                pdf_url = request.build_absolute_uri(invoice.pdf_file.url)
+                send_order_bill_whatsapp(order, pdf_url)
+            except Exception as e:
+                logger.error(f'Failed to send WhatsApp bill for order {order.id}: {str(e)}')
+
+        if status_val and status_val != old_status and order.fcm_token:
+            try:
+                status_messages = {
+                    'accepted': {'title': 'Order Accepted', 'body': f'Your Order #{order.id} has been accepted and is being prepared'},
+                    'rejected': {'title': 'Order Rejected', 'body': f'Your Order #{order.id} has been rejected' + (f': {order.reject_reason}' if order.reject_reason else '')}
+                }
+                msg = status_messages.get(status_val, {'title': 'Order Status Update', 'body': f'Your Order #{order.id} status has been updated to {status_val}'})
+                send_fcm_notification(
+                    fcm_token=order.fcm_token,
+                    title=msg['title'],
+                    body=msg['body'],
+                    data={'order_id': str(order.id), 'status': str(status_val), 'table_no': str(order.table_no or '')}
+                )
+            except Exception as e:
+                logger.error(f'Failed to send FCM notification for order {order.id}: {str(e)}')
+
+        serializer = OrderSerializer(order, context={'request': request})
+        return Response({'order': serializer.data}, status=status.HTTP_200_OK)
+
+    except Order.DoesNotExist:
+        return Response(
+            {'error': 'Order not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        logger.exception('order_status_from_notification error')
         return Response(
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR

@@ -34,7 +34,7 @@ from core.views import (
     # Unit views
     unit_list, unit_create, unit_detail, unit_edit, unit_delete,
     # Order views
-    order_list, order_create, order_detail, order_edit, order_delete,
+    order_list, order_create, order_detail, order_edit, order_delete, order_status_from_notification,
     # Transaction views
     transaction_list, transaction_detail,
     # Settings views
@@ -141,6 +141,7 @@ urlpatterns = [
     path('api/orders/create/', order_create, name='order_create'),
     path('api/orders/<int:id>/', order_detail, name='order_detail'),
     path('api/orders/<int:id>/edit/', order_edit, name='order_edit'),
+    path('api/orders/<int:id>/status-from-notification/', order_status_from_notification, name='order_status_from_notification'),
     path('api/orders/<int:id>/delete/', order_delete, name='order_delete'),
     
     # Invoice endpoints
