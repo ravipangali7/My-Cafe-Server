@@ -6,6 +6,8 @@ from django.db.models import Q
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 from django.shortcuts import redirect
+from django.conf import settings as django_settings
+from django.core.files.base import ContentFile
 from datetime import timedelta
 import json
 import os
@@ -179,10 +181,19 @@ def vendor_create(request):
         if token:
             user.token = token
         
-        # Handle logo file upload
+        # Handle logo file upload: multipart or URL from WebView upload
         if 'logo' in request.FILES:
             user.logo = request.FILES['logo']
-        
+        else:
+            logo_url = data.get('logo_url', '').strip()
+            if logo_url:
+                media_url = (getattr(django_settings, 'MEDIA_URL') or '/media/').rstrip('/')
+                if logo_url.startswith(media_url + '/') or logo_url.startswith(media_url):
+                    rel = logo_url.replace(media_url, '').lstrip('/')
+                    full_path = os.path.join(django_settings.MEDIA_ROOT, rel)
+                    if os.path.isfile(full_path):
+                        with open(full_path, 'rb') as f:
+                            user.logo.save(os.path.basename(rel), ContentFile(f.read()), save=False)
         user.save()
         
         serializer = UserSerializer(user, context={'request': request})
@@ -294,10 +305,19 @@ def vendor_edit(request, id):
             if 'password' in data and data.get('password'):
                 vendor.set_password(data.get('password'))
         
-        # Handle logo file upload
+        # Handle logo file upload: multipart file or URL from WebView upload
         if 'logo' in request.FILES:
             vendor.logo = request.FILES['logo']
-        
+        else:
+            logo_url = data.get('logo_url', '').strip()
+            if logo_url:
+                media_url = (getattr(django_settings, 'MEDIA_URL') or '/media/').rstrip('/')
+                if logo_url.startswith(media_url + '/') or logo_url.startswith(media_url):
+                    rel = logo_url.replace(media_url, '').lstrip('/')
+                    full_path = os.path.join(django_settings.MEDIA_ROOT, rel)
+                    if os.path.isfile(full_path):
+                        with open(full_path, 'rb') as f:
+                            vendor.logo.save(os.path.basename(rel), ContentFile(f.read()), save=False)
         vendor.save()
         
         serializer = UserSerializer(vendor, context={'request': request})

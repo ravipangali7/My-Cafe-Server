@@ -61,6 +61,7 @@ from core.views.dues_views import dues_list, due_detail, due_pay, due_status
 from core.views.payment_views import initiate_payment, initiate_order_payment, verify_payment, payment_callback, payment_status_by_order, payment_status_by_qr_stand
 from core.views.vendor_customer_views import vendor_customer_list, vendor_customer_create, vendor_customer_detail, vendor_customer_edit, vendor_customer_delete
 from core.views.whatsapp_notification_views import whatsapp_notification_list, whatsapp_notification_detail, whatsapp_notification_create
+from core.views.upload_views import upload_file
 
 urlpatterns = [
     
@@ -222,6 +223,9 @@ urlpatterns = [
     path('api/payment/status/order/<int:order_id>/', payment_status_by_order, name='payment_status_by_order'),
     path('api/payment/status/qr-stand/<int:qr_stand_order_id>/', payment_status_by_qr_stand, name='payment_status_by_qr_stand'),
     
+    # Upload (WebView file picker)
+    path('api/upload/', upload_file, name='upload_file'),
+
     # Vendor Customer endpoints
     path('api/vendor-customers/', vendor_customer_list, name='vendor_customer_list'),
     path('api/vendor-customers/create/', vendor_customer_create, name='vendor_customer_create'),

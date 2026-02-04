@@ -1,7 +1,10 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
+from django.conf import settings
+from django.core.files.base import ContentFile
 import json
+import os
 from django.core.paginator import Paginator
 from ..models import User
 from ..serializers import UserSerializer, KYCSerializer
@@ -71,19 +74,35 @@ def kyc_submit(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if document file is provided
-        if 'kyc_document_file' not in request.FILES:
-            return Response(
-                {'error': 'KYC document file is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Update user KYC information
-        user.kyc_document_type = kyc_document_type
-        user.kyc_document_file = request.FILES['kyc_document_file']
-        user.kyc_status = User.KYC_PENDING
-        user.kyc_reject_reason = None  # Clear any previous rejection reason
-        user.save()
+        # Check if document file or URL from WebView upload is provided
+        if 'kyc_document_file' in request.FILES:
+            user.kyc_document_type = kyc_document_type
+            user.kyc_document_file = request.FILES['kyc_document_file']
+            user.kyc_status = User.KYC_PENDING
+            user.kyc_reject_reason = None
+            user.save()
+        else:
+            kyc_document_url = data.get('kyc_document_url', '').strip()
+            if not kyc_document_url:
+                return Response(
+                    {'error': 'KYC document file or kyc_document_url is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            media_url = (getattr(settings, 'MEDIA_URL') or '/media/').rstrip('/')
+            if kyc_document_url.startswith(media_url + '/') or kyc_document_url.startswith(media_url):
+                rel = kyc_document_url.replace(media_url, '').lstrip('/')
+                full_path = os.path.join(settings.MEDIA_ROOT, rel)
+                if os.path.isfile(full_path):
+                    with open(full_path, 'rb') as f:
+                        user.kyc_document_file.save(os.path.basename(rel), ContentFile(f.read()), save=False)
+                    user.kyc_document_type = kyc_document_type
+                    user.kyc_status = User.KYC_PENDING
+                    user.kyc_reject_reason = None
+                    user.save()
+                else:
+                    return Response({'error': 'Invalid kyc_document_url path'}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({'error': 'Invalid kyc_document_url'}, status=status.HTTP_400_BAD_REQUEST)
         
         serializer = KYCSerializer(user, context={'request': request})
         return Response({

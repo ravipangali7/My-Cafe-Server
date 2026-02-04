@@ -2,7 +2,10 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import authenticate
+from django.conf import settings
+from django.core.files.base import ContentFile
 import json
+import os
 from ..models import User, FcmToken
 from ..serializers import UserSerializer
 
@@ -218,9 +221,20 @@ def update_user(request):
         if 'country_code' in data:
             user.country_code = data.get('country_code')
         
-        # Handle logo file upload
+        # Handle logo file upload: multipart file or URL from WebView upload
         if 'logo' in request.FILES:
             user.logo = request.FILES['logo']
+        else:
+            logo_url = data.get('logo_url', '').strip()
+            if logo_url:
+                # URL from /api/upload/ e.g. /media/logos/xxx.jpg
+                media_url = (getattr(settings, 'MEDIA_URL') or '/media/').rstrip('/')
+                if logo_url.startswith(media_url + '/') or logo_url.startswith(media_url):
+                    rel = logo_url.replace(media_url, '').lstrip('/')
+                    full_path = os.path.join(settings.MEDIA_ROOT, rel)
+                    if os.path.isfile(full_path):
+                        with open(full_path, 'rb') as f:
+                            user.logo.save(os.path.basename(rel), ContentFile(f.read()), save=False)
         
         user.save()
         

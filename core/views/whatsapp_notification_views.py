@@ -3,10 +3,13 @@ WhatsApp Notification views: list (view-only), detail (for progress), create (wi
 """
 import json
 import logging
+import os
 import threading
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
+from django.conf import settings
+from django.core.files.base import ContentFile
 from django.core.paginator import Paginator
 from django.db import transaction
 
@@ -159,8 +162,9 @@ def whatsapp_notification_create(request):
         if not customer_ids:
             return Response({'error': 'No valid customers selected'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Image: from multipart
+        # Image: from multipart or image_url (WebView upload)
         image_file = request.FILES.get('image') if request.FILES else None
+        image_url = (data.get('image_url') or '').strip()
 
         with transaction.atomic():
             notification = WhatsAppNotification.objects.create(
@@ -173,6 +177,14 @@ def whatsapp_notification_create(request):
             if image_file:
                 notification.image = image_file
                 notification.save(update_fields=['image'])
+            elif image_url:
+                media_url = (getattr(settings, 'MEDIA_URL') or '/media/').rstrip('/')
+                if image_url.startswith(media_url + '/') or image_url.startswith(media_url):
+                    rel = image_url.replace(media_url, '').lstrip('/')
+                    full_path = os.path.join(settings.MEDIA_ROOT, rel)
+                    if os.path.isfile(full_path):
+                        with open(full_path, 'rb') as f:
+                            notification.image.save(os.path.basename(rel), ContentFile(f.read()), save=True)
             notification.customers.set(customer_ids)
 
         # Start background send

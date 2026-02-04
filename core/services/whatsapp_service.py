@@ -202,6 +202,91 @@ def send_order_bill_whatsapp(order, invoice_pdf_url: str) -> bool:
     return customer_success or vendor_success
 
 
+def send_order_ready_whatsapp(order) -> bool:
+    """
+    Send "order ready" WhatsApp message to customer using template mycafeready.
+    Called when order status changes to 'ready'.
+
+    Args:
+        order: Order model instance (with phone, name, table_no, etc.)
+
+    Returns:
+        bool: True if message was sent successfully, False otherwise
+    """
+    try:
+        customer_country_code = getattr(order, 'country_code', None) or '91'
+        customer_phone = format_phone_number(order.phone, customer_country_code)
+        if not customer_phone:
+            logger.warning(f'No valid customer phone for order {order.id}, skipping order-ready WhatsApp')
+            return False
+
+        template_name = getattr(settings, 'MSG91_WHATSAPP_TEMPLATE_ORDER_READY', 'mycafeready')
+        template_namespace = getattr(
+            settings, 'MSG91_WHATSAPP_TEMPLATE_CUSTOMER_NAMESPACE',
+            getattr(settings, 'MSG91_WHATSAPP_TEMPLATE_VENDOR_NAMESPACE', ''),
+        )
+
+        # Typical order-ready template body variables: e.g. {{1}} order id, {{2}} name, {{3}} table
+        components = {
+            'body_1': {'type': 'text', 'value': str(order.id)},
+            'body_2': {'type': 'text', 'value': order.name or 'Customer'},
+            'body_3': {'type': 'text', 'value': order.table_no or 'N/A'},
+        }
+
+        payload = {
+            'integrated_number': getattr(settings, 'MSG91_WHATSAPP_INTEGRATED_NUMBER', ''),
+            'content_type': 'template',
+            'payload': {
+                'messaging_product': 'whatsapp',
+                'type': 'template',
+                'template': {
+                    'name': template_name,
+                    'language': {'code': 'en', 'policy': 'deterministic'},
+                    'namespace': template_namespace,
+                    'to_and_components': [
+                        {'to': [customer_phone], 'components': components}
+                    ],
+                },
+            },
+        }
+
+        headers = {
+            'Content-Type': 'application/json',
+            'authkey': getattr(settings, 'MSG91_AUTH_KEY', ''),
+        }
+
+        response = requests.post(
+            MSG91_WHATSAPP_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+
+        if response.status_code == 200:
+            response_data = response.json()
+            if response_data.get('status') == 'success':
+                logger.info(
+                    f'WhatsApp order-ready sent for order {order.id} to {customer_phone}. '
+                    f'Template: {template_name}'
+                )
+                return True
+            logger.error(
+                f'MSG91 API error for order-ready order {order.id}: {response_data}'
+            )
+            return False
+        logger.error(
+            f'MSG91 API failed for order-ready order {order.id}: '
+            f'status={response.status_code}, body={response.text}'
+        )
+        return False
+    except requests.exceptions.Timeout:
+        logger.error(f'MSG91 API timeout for order-ready order {order.id}')
+        return False
+    except Exception as e:
+        logger.error(f'Failed to send order-ready WhatsApp for order {order.id}: {e}')
+        return False
+
+
 def _get_marketing_template_names():
     """Get marketing template names from SuperSetting or Django settings fallback."""
     try:

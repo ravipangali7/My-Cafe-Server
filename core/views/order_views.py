@@ -7,11 +7,11 @@ from datetime import datetime
 from decimal import Decimal
 from django.db.models import Q
 from django.core.paginator import Paginator
-from ..models import Order, OrderItem, Product, ProductVariant, User, Invoice, SuperSetting
+from ..models import Order, OrderItem, Product, ProductVariant, User, Invoice, SuperSetting, VendorCustomer
 from ..serializers import OrderSerializer, OrderItemSerializer
 from ..services.fcm_service import send_fcm_notification, send_incoming_order_to_vendor, send_dismiss_incoming_to_vendor
 from ..services.pdf_service import generate_order_invoice
-from ..services.whatsapp_service import send_order_bill_whatsapp
+from ..services.whatsapp_service import send_order_bill_whatsapp, send_order_ready_whatsapp
 # NOTE: process_order_transactions is now called in payment_views.py on payment success
 
 logger = logging.getLogger(__name__)
@@ -159,6 +159,15 @@ def order_create(request):
             fcm_token=fcm_token,
             user=order_user
         )
+
+        # Ensure VendorCustomer exists for this vendor and phone (same vendor: skip; other vendor: new row)
+        phone_stripped = (phone or '').strip()
+        if phone_stripped:
+            VendorCustomer.objects.get_or_create(
+                user=order_user,
+                phone=phone_stripped,
+                defaults={'name': name or 'Customer'}
+            )
         
         # Parse and create order items
         try:
@@ -241,7 +250,7 @@ def order_detail(request, id):
 
 @api_view(['POST'])
 def order_edit(request, id):
-    """Update an order"""
+    """Update an order. Accepts form-data or JSON (e.g. status-only from WebView/native)."""
     if not request.user.is_authenticated:
         return Response(
             {'error': 'Not authenticated'},
@@ -255,15 +264,24 @@ def order_edit(request, id):
         else:
             order = Order.objects.get(id=id, user=request.user)
         
-        name = request.POST.get('name')
-        phone = request.POST.get('phone')
-        table_no = request.POST.get('table_no')
-        status_val = request.POST.get('status')
-        payment_status = request.POST.get('payment_status')
-        fcm_token = request.POST.get('fcm_token')
-        items_data = request.POST.get('items')
-        total = request.POST.get('total')
-        reject_reason = request.POST.get('reject_reason')
+        # Support both form-data (POST) and JSON body (e.g. status-only updates)
+        if request.content_type and 'application/json' in request.content_type:
+            try:
+                data = json.loads(request.body)
+            except (ValueError, TypeError):
+                data = {}
+        else:
+            data = request.POST
+        
+        name = data.get('name') or request.POST.get('name')
+        phone = data.get('phone') or request.POST.get('phone')
+        table_no = data.get('table_no') or request.POST.get('table_no')
+        status_val = data.get('status') or request.POST.get('status')
+        payment_status = data.get('payment_status') or request.POST.get('payment_status')
+        fcm_token = data.get('fcm_token') if 'fcm_token' in data else request.POST.get('fcm_token')
+        items_data = data.get('items') or request.POST.get('items')
+        total = data.get('total') or request.POST.get('total')
+        reject_reason = data.get('reject_reason') if 'reject_reason' in data else request.POST.get('reject_reason')
         
         # Track old status to detect changes
         old_status = order.status
@@ -318,6 +336,13 @@ def order_edit(request, id):
                 send_order_bill_whatsapp(order, pdf_url)
             except Exception as e:
                 logger.error(f'Failed to send WhatsApp bill for order {order.id}: {str(e)}')
+
+        # Send WhatsApp "order ready" (mycafeready template) to customer when status changes to ready
+        if status_val == 'ready' and status_val != old_status:
+            try:
+                send_order_ready_whatsapp(order)
+            except Exception as e:
+                logger.error(f'Failed to send order-ready WhatsApp for order {order.id}: {str(e)}')
 
         # Send FCM notification to customer if status changed and order.fcm_token exists (customer device)
         if status_val and status_val != old_status and order.fcm_token:
