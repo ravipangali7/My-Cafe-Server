@@ -304,14 +304,14 @@ def generate_order_invoice(order):
     elements.append(items_table)
     elements.append(Spacer(1, 0.25 * inch))
 
-    # --- Summary: Subtotal, Tax, Transaction charge (if any), Total ---
+    # --- Summary: Subtotal, Service charge, Transaction charge (if any), Total ---
     total_amount = float(order.total)
     subtotal_amount = sum(float(i.total) for i in order_items)
     tax_pct = 0
     tax_amount = 0
     summary_data = [
         [Paragraph("Subtotal", body_style), Paragraph(f"{subtotal_amount:.2f}", body_style)],
-        [Paragraph(f"Tax ({tax_pct}%)", body_style), Paragraph(f"{tax_amount:.2f}", body_style)],
+        [Paragraph(f"Service Charge ({tax_pct}%)", body_style), Paragraph(f"{tax_amount:.2f}", body_style)],
     ]
     if transaction_charge_val is not None and transaction_charge_val > 0:
         summary_data.append([
