@@ -389,6 +389,18 @@ def initiate_order_payment(request):
 
         # Nepal (977): use OnePG gateway; no 10-digit mobile requirement
         if str(order_user.country_code or '').strip() == '977':
+            nep_pass = getattr(django_settings, 'NEPAL_PAYMENT_API_PASSWORD', '') or ''
+            nep_key = getattr(django_settings, 'NEPAL_PAYMENT_KEY', '') or ''
+            if not nep_pass.strip() or not nep_key.strip():
+                return Response(
+                    {
+                        'error': (
+                            'Nepal Payment is not configured. Please set NEPAL_PAYMENT_API_PASSWORD '
+                            'and NEPAL_PAYMENT_KEY in the server environment.'
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             digits = ''.join(c for c in str(phone or '').strip() if c.isdigit())
             phone_normalized = digits if digits else str(phone or '').strip()
             order_payload = {
@@ -418,9 +430,14 @@ def initiate_order_payment(request):
 
             result = get_process_id(merchant_txn_id, str(total_with_fee))
             if not result.get('success'):
+                err_msg = result.get('message') or 'Failed to create payment'
+                logger.warning(
+                    'Nepal get_process_id failed: vendor_id=%s vendor_phone=%s merchant_txn_id=%s result=%s',
+                    order_user.id, order_user.phone, merchant_txn_id, result
+                )
                 transaction.delete()
                 return Response(
-                    {'error': result.get('message', 'Failed to create payment')},
+                    {'error': err_msg},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 

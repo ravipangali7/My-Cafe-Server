@@ -60,14 +60,27 @@ def get_process_id(merchant_txn_id: str, amount: str) -> dict:
                 "process_id": data["data"]["ProcessId"],
                 "message": data.get("message", "OK"),
             }
+        # Build descriptive message from code, message, and errors
+        parts = []
+        if data.get("code") is not None:
+            parts.append(f"code={data.get('code')}")
+        if data.get("message"):
+            parts.append(str(data["message"]))
+        errs = data.get("errors")
+        if errs is not None:
+            if isinstance(errs, list):
+                parts.append("; ".join(str(x) for x in errs))
+            else:
+                parts.append(str(errs))
+        message = " ".join(parts) if parts else "Error"
         return {
             "success": False,
             "process_id": None,
-            "message": data.get("message", "Error") or str(data.get("errors", "")),
+            "message": message,
         }
     except Exception as e:
         logger.exception("GetProcessId failed")
-        return {"success": False, "process_id": None, "message": str(e)}
+        return {"success": False, "process_id": None, "message": f"OnePG request failed: {e!s}"}
 
 
 def check_transaction_status(merchant_txn_id: str) -> dict:
