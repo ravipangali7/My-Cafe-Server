@@ -9,6 +9,7 @@ from ..models import (
     Product, Order, Category, TransactionHistory, OrderItem, User,
     SuperSetting, ShareholderWithdrawal,
 )
+from ..utils.subscription_helpers import get_effective_subscription_end_date
 
 
 @api_view(['GET'])
@@ -527,9 +528,10 @@ def vendor_report(request):
         active_vendors = vendors_qs.filter(is_active=True).count()
         inactive_vendors = vendors_qs.filter(is_active=False).count()
         pending_kyc_vendors = vendors_qs.filter(kyc_status=User.KYC_PENDING).count()
+        # Effective end date = expire_date or subscription_end_date
         expired_vendors = vendors_qs.filter(
-            subscription_end_date__lt=today,
-            subscription_end_date__isnull=False
+            Q(expire_date__lt=today, expire_date__isnull=False) |
+            Q(expire_date__isnull=True, subscription_end_date__lt=today, subscription_end_date__isnull=False)
         ).count()
         due_blocked_vendors = vendors_qs.filter(due_balance__gte=due_threshold).count()
         orders_in_period = Order.objects.filter(
@@ -584,6 +586,7 @@ def vendor_report(request):
             total_orders = Order.objects.filter(user=v).count()
             rev = Order.objects.filter(user=v).aggregate(t=Sum('total'))['t'] or Decimal('0')
             logo_url = request.build_absolute_uri(v.logo.url) if v.logo else None
+            effective_end = get_effective_subscription_end_date(v)
             vendors_list.append({
                 'id': v.id,
                 'name': v.name,
@@ -591,7 +594,7 @@ def vendor_report(request):
                 'country_code': v.country_code or '91',
                 'logo_url': logo_url,
                 'kyc_status': v.kyc_status,
-                'subscription_end_date': v.subscription_end_date.isoformat() if v.subscription_end_date else None,
+                'subscription_end_date': effective_end.isoformat() if effective_end else None,
                 'due_balance': v.due_balance,
                 'is_over_threshold': v.due_balance >= due_threshold,
                 'total_orders': total_orders,

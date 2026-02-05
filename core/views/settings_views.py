@@ -7,6 +7,7 @@ from datetime import timedelta, date, datetime
 from decimal import Decimal
 from ..models import Product, Order, Category, Transaction, TransactionHistory, SuperSetting, OrderItem, User, QRStandOrder, ShareholderWithdrawal
 from ..serializers import SuperSettingSerializer, UserSerializer, TransactionHistorySerializer, QRStandOrderSerializer, OrderSerializer, ShareholderWithdrawalSerializer
+from ..utils.subscription_helpers import get_effective_subscription_end_date, get_subscription_state
 
 
 @api_view(['GET'])
@@ -439,15 +440,16 @@ def vendor_dashboard_data(request):
     try:
         user = request.user
         today = date.today()
+        effective_end = get_effective_subscription_end_date(user)
         
         # Get subscription details
         subscription_type = None
         amount_paid = Decimal('0')
-        
-        if user.subscription_start_date and user.subscription_end_date:
+        end_for_type = effective_end or user.subscription_end_date
+        if user.subscription_start_date and end_for_type:
             # Calculate subscription type
-            months_diff = (user.subscription_end_date.year - user.subscription_start_date.year) * 12 + \
-                         (user.subscription_end_date.month - user.subscription_start_date.month)
+            months_diff = (end_for_type.year - user.subscription_start_date.year) * 12 + \
+                         (end_for_type.month - user.subscription_start_date.month)
             subscription_type = 'yearly' if months_diff >= 12 else 'monthly'
             
             # Calculate total amount paid from subscription transactions
@@ -460,17 +462,10 @@ def vendor_dashboard_data(request):
             
             amount_paid = sum(Decimal(str(t.amount)) for t in subscription_transactions)
         
-        # Determine subscription status
-        subscription_status = 'inactive'
-        if user.subscription_end_date:
-            if user.subscription_end_date >= today and user.is_active:
-                subscription_status = 'active'
-            elif user.subscription_end_date < today:
-                subscription_status = 'expired'
-            else:
-                subscription_status = 'inactive'
-        else:
-            subscription_status = 'no_subscription'
+        # Determine subscription status from effective end date
+        subscription_status = get_subscription_state(user, today)
+        if subscription_status == 'inactive_with_date':
+            subscription_status = 'inactive'
         
         # Get transaction history (all transactions for the user)
         transactions = TransactionHistory.objects.filter(user=user).order_by('-created_at')[:50]
@@ -710,7 +705,7 @@ def vendor_dashboard_data(request):
             'subscription': {
                 'type': subscription_type,
                 'start_date': user.subscription_start_date.isoformat() if user.subscription_start_date else None,
-                'end_date': user.subscription_end_date.isoformat() if user.subscription_end_date else None,
+                'end_date': effective_end.isoformat() if effective_end else None,
                 'amount_paid': str(amount_paid),
                 'status': subscription_status
             },
@@ -868,9 +863,10 @@ def super_admin_dashboard_data(request):
         total_vendors = vendors_qs.count()
         active_vendors = vendors_qs.filter(is_active=True).count()
         inactive_vendors = vendors_qs.filter(is_active=False).count()
+        # Effective end date = expire_date or subscription_end_date
         expired_vendors = vendors_qs.filter(
-            subscription_end_date__lt=today,
-            subscription_end_date__isnull=False
+            Q(expire_date__lt=today, expire_date__isnull=False) |
+            Q(expire_date__isnull=True, subscription_end_date__lt=today, subscription_end_date__isnull=False)
         ).count()
         due_threshold = getattr(setting, 'due_threshold', 1000) if setting else 1000
         due_blocked_vendors = vendors_qs.filter(due_balance__gte=due_threshold).count()

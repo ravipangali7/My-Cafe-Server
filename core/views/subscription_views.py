@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.db.models import Q
 from ..models import User, SuperSetting, Transaction, TransactionHistory
 from ..serializers import UserSerializer, TransactionHistorySerializer
+from ..utils.subscription_helpers import get_effective_subscription_end_date, get_subscription_state
 # NOTE: process_subscription_payment is now called in payment_views.py on payment success
 
 logger = logging.getLogger(__name__)
@@ -25,38 +26,22 @@ def subscription_status(request):
     try:
         user = request.user
         today = date.today()
+        effective_end = get_effective_subscription_end_date(user)
+        subscription_state = get_subscription_state(user, today)
+        is_active = subscription_state == 'active'
+        message = {
+            'no_subscription': 'No subscription found',
+            'expired': 'Subscription has expired',
+            'inactive_with_date': 'Contact administrator',
+            'active': 'Subscription is active',
+        }.get(subscription_state, 'Subscription is active')
         
-        # Check if subscription is active
-        is_active = False
-        if user.is_active and user.subscription_end_date:
-            is_active = user.subscription_end_date >= today
-        
-        # Determine subscription state
-        subscription_state = 'inactive'
-        message = None
-        
-        if not user.subscription_end_date:
-            # No subscription ever
-            subscription_state = 'no_subscription'
-            message = 'No subscription found'
-        elif user.subscription_end_date < today:
-            # Subscription expired
-            subscription_state = 'expired'
-            message = 'Subscription has expired'
-        elif not user.is_active and user.subscription_end_date:
-            # Subscription inactive but expire date exists
-            subscription_state = 'inactive_with_date'
-            message = 'Contact administrator'
-        elif is_active:
-            # Subscription is active
-            subscription_state = 'active'
-            message = 'Subscription is active'
-        
-        # Calculate subscription type (monthly or yearly)
+        # Calculate subscription type (monthly or yearly) using effective end date or subscription dates
         subscription_type = None
-        if user.subscription_start_date and user.subscription_end_date:
-            months_diff = (user.subscription_end_date.year - user.subscription_start_date.year) * 12 + \
-                         (user.subscription_end_date.month - user.subscription_start_date.month)
+        end_for_type = effective_end or user.subscription_end_date
+        if user.subscription_start_date and end_for_type:
+            months_diff = (end_for_type.year - user.subscription_start_date.year) * 12 + \
+                         (end_for_type.month - user.subscription_start_date.month)
             subscription_type = 'yearly' if months_diff >= 12 else 'monthly'
         
         # Get is_subscription_fee setting
@@ -69,7 +54,7 @@ def subscription_status(request):
             'subscription_type': subscription_type,
             'is_active': is_active,
             'subscription_start_date': user.subscription_start_date.isoformat() if user.subscription_start_date else None,
-            'subscription_end_date': user.subscription_end_date.isoformat() if user.subscription_end_date else None,
+            'subscription_end_date': effective_end.isoformat() if effective_end else None,
             'message': message,
             'is_subscription_fee': is_subscription_fee,
             'user': serializer.data
@@ -212,6 +197,7 @@ def subscription_history(request):
     try:
         user = request.user
         today = date.today()
+        effective_end = get_effective_subscription_end_date(user)
         
         # Get subscription transactions (user's transactions, not system)
         transactions = Transaction.objects.filter(
@@ -224,15 +210,16 @@ def subscription_history(request):
         
         # Build history timeline
         history = []
+        end_for_type = effective_end or user.subscription_end_date
         
         if user.subscription_start_date:
             # Calculate total amount paid
             total_amount = sum(float(t.amount) for t in transactions if t.status == 'success')
             
-            # Determine subscription type
-            if user.subscription_end_date and user.subscription_start_date:
-                months_diff = (user.subscription_end_date.year - user.subscription_start_date.year) * 12 + \
-                             (user.subscription_end_date.month - user.subscription_start_date.month)
+            # Determine subscription type using effective end date
+            if end_for_type and user.subscription_start_date:
+                months_diff = (end_for_type.year - user.subscription_start_date.year) * 12 + \
+                             (end_for_type.month - user.subscription_start_date.month)
                 subscription_type = 'yearly' if months_diff >= 12 else 'monthly'
             else:
                 subscription_type = None
@@ -242,9 +229,9 @@ def subscription_history(request):
                 'event': 'subscription_started',
                 'subscription_type': subscription_type,
                 'start_date': user.subscription_start_date.isoformat(),
-                'end_date': user.subscription_end_date.isoformat() if user.subscription_end_date else None,
+                'end_date': effective_end.isoformat() if effective_end else None,
                 'amount_paid': str(total_amount),
-                'status': 'active' if (user.subscription_end_date and user.subscription_end_date >= today) else 'expired'
+                'status': 'active' if (effective_end and effective_end >= today) else 'expired'
             })
             
             # Add transaction events
@@ -262,8 +249,8 @@ def subscription_history(request):
             'history': history,
             'current_subscription': {
                 'start_date': user.subscription_start_date.isoformat() if user.subscription_start_date else None,
-                'end_date': user.subscription_end_date.isoformat() if user.subscription_end_date else None,
-                'is_active': user.subscription_end_date and user.subscription_end_date >= today if user.subscription_end_date else False
+                'end_date': effective_end.isoformat() if effective_end else None,
+                'is_active': effective_end and effective_end >= today if effective_end else False
             }
         }, status=status.HTTP_200_OK)
         

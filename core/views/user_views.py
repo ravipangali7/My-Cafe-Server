@@ -8,6 +8,7 @@ import json
 import os
 from ..models import User, FcmToken
 from ..serializers import UserSerializer
+from ..utils.subscription_helpers import get_effective_subscription_end_date, get_subscription_state
 
 
 @api_view(['POST'])
@@ -60,23 +61,16 @@ def login(request):
         kyc_status = user.kyc_status
         kyc_approved = kyc_status == 'approved'
         
-        # Check subscription status
-        subscription_state = 'inactive'
-        subscription_message = None
+        # Check subscription status (based on effective end date: expire_date or subscription_end_date)
         today = date.today()
-        
-        if not user.subscription_end_date:
-            subscription_state = 'no_subscription'
-            subscription_message = 'No subscription found'
-        elif user.subscription_end_date < today:
-            subscription_state = 'expired'
-            subscription_message = 'Subscription has expired'
-        elif not user.is_active and user.subscription_end_date:
-            subscription_state = 'inactive_with_date'
-            subscription_message = 'Contact administrator'
-        elif user.is_active and user.subscription_end_date and user.subscription_end_date >= today:
-            subscription_state = 'active'
-            subscription_message = 'Subscription is active'
+        effective_end = get_effective_subscription_end_date(user)
+        subscription_state = get_subscription_state(user, today)
+        subscription_message = {
+            'no_subscription': 'No subscription found',
+            'expired': 'Subscription has expired',
+            'inactive_with_date': 'Contact administrator',
+            'active': 'Subscription is active',
+        }.get(subscription_state, 'Subscription is active')
         
         serializer = UserSerializer(user, context={'request': request})
         return Response({

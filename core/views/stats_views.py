@@ -337,12 +337,12 @@ def vendor_stats(request):
         inactive = queryset.filter(is_active=False).count()
         superusers = User.objects.filter(is_superuser=True).count()
         
-        # KYC and subscription
+        # KYC and subscription (effective end date = expire_date or subscription_end_date)
         kyc_pending = queryset.filter(kyc_status=User.KYC_PENDING).count()
         today = timezone.now().date()
         subscription_expired = queryset.filter(
-            subscription_end_date__lt=today,
-            subscription_end_date__isnull=False
+            Q(expire_date__lt=today, expire_date__isnull=False) |
+            Q(expire_date__isnull=True, subscription_end_date__lt=today, subscription_end_date__isnull=False)
         ).count()
         
         # Due balance
