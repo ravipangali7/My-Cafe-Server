@@ -10,6 +10,7 @@ from rest_framework.permissions import AllowAny
 from django.http import HttpResponse, FileResponse
 from django.core.files.base import ContentFile
 from django.conf import settings
+from django.db.models import Sum
 from datetime import datetime
 from ..models import Order, Invoice
 from ..services.pdf_service import generate_order_invoice
@@ -300,15 +301,30 @@ def invoice_public_view(request, order_id, token):
             invoice.total_amount = order.total
             invoice.save()
         
+        # Order-level transaction charge (sum of transaction_fee for this order)
+        txn_charge_agg = order.transactions.filter(
+            transaction_category='transaction_fee',
+            status='success',
+        ).aggregate(Sum('amount'))
+        transaction_charge = txn_charge_agg['amount__sum']
+        transaction_charge_str = str(transaction_charge) if transaction_charge is not None else None
+
         # Build items list
         items = []
         for item in order.items.all():
+            product_image_url = None
+            if item.product and item.product.image:
+                try:
+                    product_image_url = request.build_absolute_uri(item.product.image.url)
+                except Exception:
+                    pass
             item_data = {
                 'id': item.id,
                 'product_name': item.product.name if item.product else 'Unknown',
                 'quantity': item.quantity,
                 'price': str(item.price),
                 'total': str(item.total),
+                'product_image_url': product_image_url,
             }
             if item.product_variant:
                 item_data['variant'] = {
@@ -342,6 +358,8 @@ def invoice_public_view(request, order_id, token):
                 'remarks': '',
                 'customer_name': order.name,
                 'customer_phone': order.phone or '',
+                'customer_number': f'Order #{order.id}',
+                'transaction_charge': transaction_charge_str,
                 'created_at': order.created_at.isoformat(),
             },
             'items': items,

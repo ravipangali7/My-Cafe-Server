@@ -1,10 +1,11 @@
 """
 PDF Generation Service for Order Invoices
-Single-page layout matching reference design: beige background, accent dividers, olive footer.
+Single-page layout: logo top-left, INVOICE top-right, customer block, items with image, summary with optional transaction charge.
 """
 import os
 from io import BytesIO
 from datetime import datetime
+from django.db.models import Sum
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
@@ -76,9 +77,18 @@ def generate_order_invoice(order):
         parent=styles['Normal'],
         fontSize=28,
         textColor=DARK_GRAY,
-        alignment=TA_CENTER,
-        fontName='Times-Bold',
+        alignment=TA_RIGHT,
+        fontName='Helvetica-Bold',
         leading=32,
+    )
+    invoice_num_style_right = ParagraphStyle(
+        'InvoiceNumRight',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=DARK_GRAY,
+        alignment=TA_RIGHT,
+        fontName='Helvetica',
+        leading=10,
     )
     heading_style = ParagraphStyle(
         'Heading',
@@ -103,15 +113,6 @@ def generate_order_invoice(order):
         textColor=DARK_GRAY,
         leading=12,
         fontName='Helvetica-Bold',
-    )
-    invoice_num_style = ParagraphStyle(
-        'InvoiceNum',
-        parent=styles['Normal'],
-        fontSize=8,
-        textColor=DARK_GRAY,
-        alignment=TA_CENTER,
-        fontName='Helvetica',
-        leading=10,
     )
     banner_text_style = ParagraphStyle(
         'BannerText',
@@ -142,7 +143,15 @@ def generate_order_invoice(order):
     invoice_date = order.created_at.strftime('%B %d, %Y')
     order_date_short = order.created_at.strftime('%m/%d/%Y')
 
-    # --- Logo (centered) ---
+    # Order-level transaction charge
+    txn_charge_agg = order.transactions.filter(
+        transaction_category='transaction_fee',
+        status='success',
+    ).aggregate(Sum('amount'))
+    transaction_charge = txn_charge_agg.get('amount__sum')
+    transaction_charge_val = float(transaction_charge) if transaction_charge is not None else None
+
+    # --- Header: logo top-left, INVOICE top-right ---
     logo_flowable = None
     if vendor_logo_path:
         try:
@@ -162,7 +171,6 @@ def generate_order_invoice(order):
         except Exception:
             logo_flowable = Paragraph("LOGO", body_bold_style)
 
-    # Logo in a centered cell with accent border effect (table with padding acts as "ring")
     logo_table = Table(
         [[logo_flowable]],
         colWidths=[1.4 * inch],
@@ -178,28 +186,35 @@ def generate_order_invoice(order):
         ('TOPPADDING', (0, 0), (-1, -1), 10),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
     ]))
-    elements.append(Table([[logo_table]], colWidths=[7 * inch]))
-    elements[-1].setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
 
-    # Vendor name banner (optional strip in accent)
-    banner_para = Paragraph(vendor_name.upper()[:40], banner_text_style)
-    banner_tbl = Table([[banner_para]], colWidths=[2 * inch])
-    banner_tbl.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), ACCENT),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    title_right = Paragraph("INVOICE", title_style)
+    num_right = Paragraph(invoice_number, invoice_num_style_right)
+    header_right = Table([[title_right], [num_right]], colWidths=[2.5 * inch])
+    header_right.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 2),
     ]))
-    wrap_banner = Table([[banner_tbl]], colWidths=[7 * inch])
-    wrap_banner.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
-    elements.append(wrap_banner)
-    elements.append(Spacer(1, 0.15 * inch))
+    header_table = Table(
+        [[logo_table, header_right]],
+        colWidths=[1.6 * inch, 5.4 * inch],
+    )
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+    ]))
+    elements.append(header_table)
+    elements.append(Spacer(1, 0.25 * inch))
 
-    # --- Invoice title ---
-    elements.append(Paragraph("Invoice", title_style))
-    elements.append(Paragraph(invoice_number, invoice_num_style))
-    elements.append(Spacer(1, 0.35 * inch))
+    # --- Customer information ---
+    customer_para = Paragraph(
+        f"<b>Customer:</b> {order.name or '—'}<br/><b>Customer number:</b> Order #{order.id}",
+        body_style,
+    )
+    elements.append(customer_para)
+    elements.append(Spacer(1, 0.2 * inch))
 
     # --- INVOICE FROM | INVOICE TO ---
     from_para = Paragraph(
@@ -232,16 +247,30 @@ def generate_order_invoice(order):
     elements.append(divider)
     elements.append(Spacer(1, 0.15 * inch))
 
-    # --- Items table: DESCRIPTION, QTY, PRICE, TOTAL ---
+    # --- Items table: IMAGE, DESCRIPTION, QTY, PRICE, TOTAL ---
     order_items = order.items.select_related('product', 'product_variant__unit').all()
-    table_data = [['DESCRIPTION', 'QTY', 'PRICE', 'TOTAL']]
+    img_size = 0.55 * inch
+    table_data = [['IMAGE', 'DESCRIPTION', 'QTY', 'PRICE', 'TOTAL']]
     for item in order_items:
         product = item.product
         product_name = product.name if product else "Unknown Product"
         variant_info = ""
         if item.product_variant and item.product_variant.unit:
             variant_info = f" ({item.product_variant.unit.symbol})"
+        # Product image or placeholder
+        img_flowable = Paragraph("—", body_style)
+        if product and product.image and os.path.exists(product.image.path):
+            try:
+                img = PILImage.open(product.image.path)
+                img.thumbnail((80, 80), PILImage.Resampling.LANCZOS)
+                img_buf = BytesIO()
+                img.save(img_buf, format='PNG')
+                img_buf.seek(0)
+                img_flowable = Image(img_buf, width=img_size, height=img_size)
+            except Exception:
+                pass
         table_data.append([
+            img_flowable,
             Paragraph(f"{product_name}{variant_info}", body_style),
             Paragraph(str(item.quantity), body_style),
             Paragraph(f"{float(item.price):.2f}", body_style),
@@ -250,27 +279,28 @@ def generate_order_invoice(order):
 
     items_table = Table(
         table_data,
-        colWidths=[3.8 * inch, 0.9 * inch, 1.1 * inch, 1.2 * inch],
+        colWidths=[0.7 * inch, 3.2 * inch, 0.7 * inch, 1.0 * inch, 1.1 * inch],
     )
     items_table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, 0), 8),
         ('TEXTCOLOR', (0, 0), (-1, 0), DARK_GRAY),
-        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+        ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+        ('ALIGN', (2, 0), (-1, -1), 'RIGHT'),
         ('LINEABOVE', (0, 0), (-1, 0), 1.5, ACCENT),
         ('LINEBELOW', (0, 0), (-1, 0), 1.5, ACCENT),
         ('LINEBELOW', (0, -1), (-1, -1), 0.5, ACCENT),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('LEFTPADDING', (0, 0), (-1, -1), 6),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('LEFTPADDING', (0, 0), (-1, -1), 4),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
     ]))
     elements.append(items_table)
     elements.append(Spacer(1, 0.25 * inch))
 
-    # --- Summary: Subtotal, Tax, Total ---
+    # --- Summary: Subtotal, Tax, Transaction charge (if any), Total ---
     total_amount = float(order.total)
     subtotal_amount = sum(float(i.total) for i in order_items)
     tax_pct = 0
@@ -278,14 +308,23 @@ def generate_order_invoice(order):
     summary_data = [
         [Paragraph("Subtotal", body_style), Paragraph(f"{subtotal_amount:.2f}", body_style)],
         [Paragraph(f"Tax ({tax_pct}%)", body_style), Paragraph(f"{tax_amount:.2f}", body_style)],
-        [Paragraph("Total", body_bold_style), Paragraph(f"{total_amount:.2f}", body_bold_style)],
     ]
-    summary_table = Table(summary_data, colWidths=[1.2 * inch, 1.2 * inch])
+    if transaction_charge_val is not None and transaction_charge_val > 0:
+        summary_data.append([
+            Paragraph("Transaction charge", body_style),
+            Paragraph(f"{transaction_charge_val:.2f}", body_style),
+        ])
+    summary_data.append([
+        Paragraph("Total", body_bold_style),
+        Paragraph(f"{total_amount:.2f}", body_bold_style),
+    ])
+    summary_table = Table(summary_data, colWidths=[1.4 * inch, 1.2 * inch])
     summary_table.setStyle(TableStyle([
         ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
         ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('FONTSIZE', (0, 2), (1, 2), 10),
-        ('LINEABOVE', (0, 2), (1, 2), 1, ACCENT),
+        ('FONTSIZE', (0, -1), (1, -1), 10),
+        ('FONTNAME', (0, -1), (1, -1), 'Helvetica-Bold'),
+        ('LINEABOVE', (0, -1), (1, -1), 1, ACCENT),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
