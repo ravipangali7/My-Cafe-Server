@@ -2,6 +2,7 @@
 PDF Generation Service for Order Invoices
 Single-page layout: logo top-left, INVOICE top-right, customer block, items with image, summary with optional transaction charge.
 """
+import base64
 import os
 from io import BytesIO
 from datetime import datetime
@@ -378,3 +379,308 @@ def generate_order_invoice(order):
         raise ValueError("Generated PDF is empty or invalid")
     filename = f'invoice_order_{order.id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
     return ContentFile(pdf, name=filename)
+
+
+def _image_from_base64(data, width_inch, height_inch):
+    """Decode base64 image (raw or data URL) and return ReportLab Image flowable, or None."""
+    if not data:
+        return None
+    raw = data
+    if isinstance(data, str) and data.startswith('data:'):
+        try:
+            raw = data.split(',', 1)[1]
+        except IndexError:
+            return None
+    try:
+        buf = BytesIO(base64.b64decode(raw))
+        return Image(buf, width=width_inch, height=height_inch)
+    except Exception:
+        return None
+
+
+def generate_invoice_pdf_from_payload(payload):
+    """
+    Generate a PDF invoice from the same JSON payload the React public page uses.
+    Layout and formatting match the React design: labels, ₹ currency, remarks, payment_method, date, variant.
+    Optional: vendor.logo_base64, items[].product_image_base64 for embedding images; otherwise placeholder.
+    Returns raw PDF bytes.
+    """
+    invoice = payload.get('invoice') or {}
+    order = payload.get('order') or {}
+    items = payload.get('items') or []
+    vendor = payload.get('vendor') or {}
+
+    # Computed values (React sends these so PDF matches exactly)
+    subtotal_val = payload.get('subtotal')
+    if subtotal_val is None:
+        subtotal_val = sum(float(i.get('total', 0)) for i in items)
+    tax_pct = payload.get('taxPercent', 0)
+    tax_amount_val = payload.get('taxAmount', 0)
+    transaction_charge_val = payload.get('transactionCharge', 0)
+    if transaction_charge_val is None and order.get('transaction_charge') is not None:
+        try:
+            transaction_charge_val = float(order['transaction_charge'])
+        except (TypeError, ValueError):
+            transaction_charge_val = 0
+    total_val = payload.get('total')
+    if total_val is None:
+        total_val = float(order.get('total', 0))
+    customer_number = payload.get('customerNumber') or order.get('customer_number') or f"Order #{order.get('id', '')}"
+    order_date_str = payload.get('orderDate')
+    if not order_date_str and order.get('created_at'):
+        try:
+            dt = datetime.fromisoformat(order['created_at'].replace('Z', '+00:00'))
+            order_date_str = dt.strftime('%m/%d/%Y')
+        except Exception:
+            order_date_str = str(order.get('created_at', ''))
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=0.5 * inch,
+        leftMargin=0.5 * inch,
+        topMargin=0.4 * inch,
+        bottomMargin=0.5 * inch,
+    )
+    elements = []
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'InvoiceTitle',
+        parent=styles['Normal'],
+        fontSize=28,
+        textColor=DARK_GRAY,
+        alignment=TA_RIGHT,
+        fontName='Helvetica-Bold',
+        leading=32,
+    )
+    invoice_num_style_right = ParagraphStyle(
+        'InvoiceNumRight',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=DARK_GRAY,
+        alignment=TA_RIGHT,
+        fontName='Helvetica',
+        leading=10,
+    )
+    body_style = ParagraphStyle(
+        'Body',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=DARK_GRAY,
+        leading=12,
+        fontName='Helvetica',
+    )
+    body_bold_style = ParagraphStyle(
+        'BodyBold',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=DARK_GRAY,
+        leading=12,
+        fontName='Helvetica-Bold',
+    )
+
+    invoice_number = invoice.get('invoice_number') or f"INV-{order.get('id', 0)}"
+    vendor_name = vendor.get('name') or 'Vendor'
+    vendor_phone = vendor.get('phone') or ''
+    vendor_address = vendor.get('address') or ''
+    customer_name = order.get('customer_name') or 'Customer'
+    customer_phone = order.get('customer_phone') or ''
+
+    # --- Header: logo top-left, INVOICE top-right ---
+    logo_flowable = None
+    logo_b64 = vendor.get('logo_base64')
+    if logo_b64:
+        logo_flowable = _image_from_base64(logo_b64, 1.2 * inch, 1.2 * inch)
+    if logo_flowable is None:
+        try:
+            logo_buf = generate_logo_image(vendor_name, size=(120, 120))
+            logo_buf.seek(0)
+            logo_flowable = Image(logo_buf, width=1.2 * inch, height=1.2 * inch)
+        except Exception:
+            logo_flowable = Paragraph("LOGO", body_bold_style)
+
+    logo_table = Table(
+        [[logo_flowable]],
+        colWidths=[1.4 * inch],
+        rowHeights=[1.4 * inch],
+    )
+    logo_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOX', (0, 0), (-1, -1), 2, ACCENT),
+        ('BACKGROUND', (0, 0), (-1, -1), LIGHT_BEIGE),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+    ]))
+
+    title_right = Paragraph("INVOICE", title_style)
+    num_right = Paragraph(invoice_number, invoice_num_style_right)
+    header_right = Table([[title_right], [num_right]], colWidths=[2.5 * inch])
+    header_right.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 2),
+    ]))
+    header_table = Table(
+        [[logo_table, header_right]],
+        colWidths=[1.6 * inch, 5.4 * inch],
+    )
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+    ]))
+    elements.append(header_table)
+    elements.append(Spacer(1, 0.25 * inch))
+
+    # --- Customer information (same labels as React) ---
+    customer_para = Paragraph(
+        f"<b>Customer name:</b> {customer_name}<br/><b>Customer number:</b> {customer_number}",
+        body_style,
+    )
+    elements.append(customer_para)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # --- Invoice from | Invoice to (same labels as React) ---
+    from_para = Paragraph(
+        f"<b>Invoice from</b><br/><br/><b>{vendor_name}</b><br/>{vendor_phone or '—'}<br/>{vendor_address or '—'}",
+        body_style,
+    )
+    to_para = Paragraph(
+        f"<b>Invoice to</b><br/><br/><b>{customer_name}</b><br/>{customer_phone or '—'}",
+        body_style,
+    )
+    from_to_table = Table(
+        [[from_para, to_para]],
+        colWidths=[3.5 * inch, 3.5 * inch],
+    )
+    from_to_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (0, -1), 0),
+        ('RIGHTPADDING', (1, 0), (1, -1), 0),
+    ]))
+    elements.append(from_to_table)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # --- Divider ---
+    divider = Table([[""]], colWidths=[7 * inch], rowHeights=[3])
+    divider.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), ACCENT),
+        ('LINEABOVE', (0, 0), (-1, -1), 0, ACCENT),
+        ('LINEBELOW', (0, 0), (-1, -1), 0, ACCENT),
+    ]))
+    elements.append(divider)
+    elements.append(Spacer(1, 0.15 * inch))
+
+    # --- Items table: Image, Description, Qty, Price, Total (₹) ---
+    img_size = 0.55 * inch
+    table_data = [['Image', 'Description', 'Qty', 'Price', 'Total']]
+    for item in items:
+        product_name = item.get('product_name') or 'Unknown'
+        variant = item.get('variant') or {}
+        variant_str = ''
+        if variant.get('unit_name'):
+            uv = variant.get('unit_value')
+            variant_str = f" ({uv} {variant['unit_name']})" if uv is not None else f" ({variant['unit_name']})"
+        desc_text = f"{product_name}{variant_str}"
+
+        img_flowable = Paragraph("—", body_style)
+        img_b64 = item.get('product_image_base64')
+        if img_b64:
+            img_flowable = _image_from_base64(img_b64, img_size, img_size) or img_flowable
+
+        price_val = float(item.get('price', 0))
+        total_item = float(item.get('total', 0))
+        table_data.append([
+            img_flowable,
+            Paragraph(desc_text, body_style),
+            Paragraph(str(item.get('quantity', 0)), body_style),
+            Paragraph(f"₹{price_val:.2f}", body_style),
+            Paragraph(f"₹{total_item:.2f}", body_style),
+        ])
+
+    items_table = Table(
+        table_data,
+        colWidths=[0.7 * inch, 3.2 * inch, 0.7 * inch, 1.0 * inch, 1.1 * inch],
+    )
+    items_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('TEXTCOLOR', (0, 0), (-1, 0), DARK_GRAY),
+        ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+        ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+        ('ALIGN', (2, 0), (-1, -1), 'RIGHT'),
+        ('LINEABOVE', (0, 0), (-1, 0), 1.5, ACCENT),
+        ('LINEBELOW', (0, 0), (-1, 0), 1.5, ACCENT),
+        ('LINEBELOW', (0, -1), (-1, -1), 0.5, ACCENT),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('LEFTPADDING', (0, 0), (-1, -1), 4),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(items_table)
+    elements.append(Spacer(1, 0.25 * inch))
+
+    # --- Summary: Subtotal, Service Charge (X%), Transaction charge, Total (₹) ---
+    summary_data = [
+        [Paragraph("Subtotal", body_style), Paragraph(f"₹{float(subtotal_val):.2f}", body_style)],
+        [Paragraph(f"Service Charge ({tax_pct}%)", body_style), Paragraph(f"₹{float(tax_amount_val):.2f}", body_style)],
+    ]
+    if float(transaction_charge_val) > 0:
+        summary_data.append([
+            Paragraph("Transaction charge", body_style),
+            Paragraph(f"₹{float(transaction_charge_val):.2f}", body_style),
+        ])
+    summary_data.append([
+        Paragraph("Total", body_bold_style),
+        Paragraph(f"₹{float(total_val):.2f}", body_bold_style),
+    ])
+    summary_table = Table(summary_data, colWidths=[1.4 * inch, 1.2 * inch])
+    summary_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('FONTSIZE', (0, -1), (1, -1), 10),
+        ('FONTNAME', (0, -1), (1, -1), 'Helvetica-Bold'),
+        ('LINEABOVE', (0, -1), (1, -1), 1, ACCENT),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    summary_wrapper = Table([[summary_table]], colWidths=[7 * inch])
+    summary_wrapper.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'RIGHT')]))
+    elements.append(summary_wrapper)
+    elements.append(Spacer(1, 0.3 * inch))
+
+    # --- Terms & conditions | Payment method (same as React) ---
+    terms_text = order.get('remarks') or 'Thank you for your order.'
+    payment_method = order.get('payment_method') or '—'
+    terms_para = Paragraph(
+        f"<b>Terms &amp; conditions</b><br/><br/>{terms_text}",
+        body_style,
+    )
+    payment_para = Paragraph(
+        f"<b>Payment method</b><br/><br/>Payment: {payment_method}<br/>Date: {order_date_str or '—'}",
+        body_style,
+    )
+    terms_payment_table = Table(
+        [[terms_para, payment_para]],
+        colWidths=[3.5 * inch, 3.5 * inch],
+    )
+    terms_payment_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (1, 0), (1, -1), 20),
+    ]))
+    elements.append(terms_payment_table)
+    elements.append(Spacer(1, 0.4 * inch))
+
+    doc.build(elements, canvasmaker=BeigeInvoiceCanvas)
+    pdf = buffer.getvalue()
+    buffer.close()
+    if len(pdf) < 100:
+        raise ValueError("Generated PDF is empty or invalid")
+    return pdf

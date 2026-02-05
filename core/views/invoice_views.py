@@ -3,6 +3,7 @@ Invoice views for generating and downloading PDF bills
 """
 import hmac
 import hashlib
+import json
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
@@ -13,7 +14,7 @@ from django.conf import settings
 from django.db.models import Sum
 from datetime import datetime
 from ..models import Order, Invoice
-from ..services.pdf_service import generate_order_invoice
+from ..services.pdf_service import generate_order_invoice, generate_invoice_pdf_from_payload
 
 
 # Secret key for generating public invoice tokens
@@ -390,21 +391,66 @@ def invoice_public_view(request, order_id, token):
         )
 
 
-@api_view(['GET'])
+@api_view(['GET', 'POST'])
 @authentication_classes([])
 @permission_classes([AllowAny])
 def invoice_public_download(request, order_id, token):
     """
     Public endpoint to download invoice PDF without authentication.
     Token is verified using HMAC to ensure the request is valid.
+    GET: generate PDF from DB (legacy). POST: generate PDF from request body (invoice data from React).
     """
-    # Verify token
     if not verify_invoice_token(order_id, token):
         return Response(
             {'error': 'Invalid or expired token'},
             status=status.HTTP_403_FORBIDDEN
         )
-    
+
+    # POST: generate PDF from payload (same data/design as React)
+    if request.method == 'POST':
+        try:
+            try:
+                body = request.body
+                if not body:
+                    return Response(
+                        {'error': 'Request body is required'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                payload = json.loads(body.decode('utf-8'))
+            except (ValueError, UnicodeDecodeError) as e:
+                return Response(
+                    {'error': f'Invalid JSON: {str(e)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            required = ('invoice', 'order', 'items')
+            for key in required:
+                if key not in payload:
+                    return Response(
+                        {'error': f'Missing required field: {key}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            payload_order_id = payload.get('order', {}).get('id')
+            if payload_order_id is not None and int(payload_order_id) != int(order_id):
+                return Response(
+                    {'error': 'Order ID in URL does not match payload'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            pdf_bytes = generate_invoice_pdf_from_payload(payload)
+            response = HttpResponse(pdf_bytes, content_type='application/pdf')
+            response['Content-Disposition'] = f'attachment; filename="invoice_order_{order_id}.pdf"'
+            return response
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to generate PDF: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    # GET: legacy – generate from DB
     try:
         # Get order
         order = Order.objects.prefetch_related(
