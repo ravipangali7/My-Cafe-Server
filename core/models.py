@@ -63,7 +63,7 @@ class User(AbstractUser):
     
     # New Balance & Shareholder Fields
     address = models.CharField(max_length=500, blank=True, default='')
-    ug_client_transaction_id = models.CharField(max_length=255, blank=True, null=True)
+    ug_api = models.CharField(max_length=255, blank=True, null=True)
     balance = models.IntegerField(default=0)
     due_balance = models.IntegerField(default=0)
     is_shareholder = models.BooleanField(default=False)
@@ -322,7 +322,7 @@ class SuperSetting(models.Model):
     subscription_fee_per_month = models.PositiveIntegerField(default=0)
     
     # New Transaction System Fields
-    ug_client_transaction_id = models.CharField(max_length=255, blank=True, null=True)
+    ug_api = models.CharField(max_length=255, blank=True, null=True)
     per_transaction_fee = models.IntegerField(default=10)
     is_subscription_fee = models.BooleanField(default=True)
     due_threshold = models.IntegerField(default=1000)

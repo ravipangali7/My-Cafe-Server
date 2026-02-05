@@ -28,6 +28,12 @@ def get_ist_date():
 
 from ..models import Transaction, Order, OrderItem, QRStandOrder, User, SuperSetting, Product, ProductVariant
 from ..utils.ug_payment import UGPaymentClient
+from ..services.ug_payment_service import (
+    get_ug_api_for_menu_order,
+    get_ug_api_for_non_menu,
+    resolve_ug_api_for_transaction,
+    get_ug_client,
+)
 from ..utils.transaction_helpers import (
     process_order_transactions,
     process_due_payment,
@@ -183,8 +189,15 @@ def initiate_payment(request):
                     status=status.HTTP_404_NOT_FOUND
                 )
         
-        # Initialize UG Payment Client
-        ug_client = UGPaymentClient()
+        # Dues, subscription, QR stand, and post-order payments use Super Settings UG API.
+        try:
+            ug_api = get_ug_api_for_non_menu()
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        ug_client = get_ug_client(ug_api)
         
         # Generate unique client transaction ID
         prefix = PREFIX_MAP[payment_type]
@@ -312,6 +325,15 @@ def initiate_order_payment(request):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # Menu-based orders use the vendor's UG API so payments are routed to the correct vendor account.
+        try:
+            ug_api = get_ug_api_for_menu_order(order_user)
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         settings = SuperSetting.objects.first()
         transaction_fee = settings.per_transaction_fee if settings else 10
         order_amount = Decimal(str(total))
@@ -343,7 +365,7 @@ def initiate_order_payment(request):
             order_payload=order_payload,
         )
 
-        ug_client = UGPaymentClient()
+        ug_client = get_ug_client(ug_api)
         client_txn_id = ug_client.generate_client_txn_id('ORD', transaction.id)
         redirect_url = ug_client.get_redirect_url()
         p_info = f"Order payment - My Cafe"
@@ -419,6 +441,15 @@ def verify_payment(request, client_txn_id):
         # Get vendor phone for redirect (used by frontend for non-logged-in users)
         vendor_phone = transaction.user.phone if transaction.user else None
         
+        # Resolve UG API key used at initiation (menu: vendor.ug_api, non-menu: Super Settings ug_api).
+        try:
+            api_key = resolve_ug_api_for_transaction(transaction)
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        
         # If already processed, return cached status
         if transaction.ug_status in ['success', 'failure']:
             return Response({
@@ -438,8 +469,8 @@ def verify_payment(request, client_txn_id):
                 }
             }, status=status.HTTP_200_OK)
         
-        # Check status with UG API with retry logic for pending/scanning states
-        ug_client = UGPaymentClient()
+        # Check status with UG API with retry logic for pending/scanning states (same key as initiation).
+        ug_client = get_ug_client(api_key)
         
         max_retries = 3
         retry_delay = 2  # seconds
@@ -707,9 +738,16 @@ def payment_callback(request):
             base_url = getattr(django_settings, 'PAYMENT_REDIRECT_BASE_URL', '')
             return redirect(f"{base_url}/payment/status?error=transaction_not_found")
         
-        # Check status with UG API with retry logic
+        # Resolve UG API key used at initiation (menu: vendor.ug_api, non-menu: Super Settings ug_api).
+        try:
+            api_key = resolve_ug_api_for_transaction(transaction)
+        except ValueError:
+            base_url = getattr(django_settings, 'PAYMENT_REDIRECT_BASE_URL', '')
+            return redirect(f"{base_url}/payment/status?error=ug_api_not_configured")
+        
+        # Check status with UG API with retry logic (same key as initiation).
         # UG may return 'pending' or 'scanning' immediately after payment due to race condition
-        ug_client = UGPaymentClient()
+        ug_client = get_ug_client(api_key)
         
         max_retries = 3
         retry_delay = 2  # seconds

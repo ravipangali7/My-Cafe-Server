@@ -33,14 +33,18 @@ class UGPaymentClient:
         )
     """
     
-    def __init__(self):
-        """Initialize the client with API credentials from settings."""
-        self.api_key = getattr(settings, 'UG_API_KEY', '')
+    def __init__(self, api_key=None):
+        """
+        Initialize the client with API credentials.
+        If api_key is provided (e.g. from Super Settings or vendor User.ug_api), use it.
+        Otherwise fall back to settings.UG_API_KEY for backward compatibility.
+        """
+        self.api_key = (api_key or '').strip() if api_key is not None else getattr(settings, 'UG_API_KEY', '')
         self.base_url = getattr(settings, 'UG_API_BASE_URL', 'https://api.ekqr.in/api')
         self.redirect_base_url = getattr(settings, 'PAYMENT_REDIRECT_BASE_URL', '')
         
         if not self.api_key:
-            logger.warning("UG_API_KEY not configured in settings")
+            logger.warning("UG API key not configured (no api_key passed and UG_API_KEY not in settings)")
     
     def generate_client_txn_id(self, prefix: str, reference_id: int) -> str:
         """

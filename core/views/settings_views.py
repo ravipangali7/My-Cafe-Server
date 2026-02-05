@@ -239,7 +239,7 @@ def update_settings(request):
         subscription_fee_per_month = data.get('subscription_fee_per_month', 0)
         
         # New transaction system fields
-        ug_client_transaction_id = data.get('ug_client_transaction_id')
+        ug_api = data.get('ug_api')
         per_transaction_fee = data.get('per_transaction_fee', 10)
         is_subscription_fee = data.get('is_subscription_fee', True)
         due_threshold = data.get('due_threshold', 1000)
@@ -314,7 +314,7 @@ def update_settings(request):
                 'expire_duration_month': expire_duration_month,
                 'per_qr_stand_price': per_qr_stand_price,
                 'subscription_fee_per_month': subscription_fee_per_month,
-                'ug_client_transaction_id': ug_client_transaction_id,
+                'ug_api': ug_api,
                 'per_transaction_fee': per_transaction_fee,
                 'is_subscription_fee': is_subscription_fee,
                 'due_threshold': due_threshold,
@@ -335,7 +335,7 @@ def update_settings(request):
             setting.expire_duration_month = expire_duration_month
             setting.per_qr_stand_price = per_qr_stand_price
             setting.subscription_fee_per_month = subscription_fee_per_month
-            setting.ug_client_transaction_id = ug_client_transaction_id
+            setting.ug_api = ug_api
             setting.per_transaction_fee = per_transaction_fee
             setting.is_subscription_fee = is_subscription_fee
             setting.due_threshold = due_threshold

@@ -17,7 +17,7 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'name', 'phone', 'country_code', 'logo_url', 'expire_date', 'is_active', 'is_superuser',
             'kyc_status', 'kyc_reject_reason', 'kyc_document_type', 'kyc_document_url',
             'subscription_start_date', 'subscription_end_date',
-            'address', 'ug_client_transaction_id', 'balance', 'due_balance', 
+            'address', 'ug_api', 'balance', 'due_balance', 
             'is_shareholder', 'share_percentage',
             'created_at', 'updated_at'
         ]
@@ -286,7 +286,7 @@ class SuperSettingSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'expire_duration_month', 'per_qr_stand_price', 
             'subscription_fee_per_month',
-            'ug_client_transaction_id', 'per_transaction_fee', 'is_subscription_fee',
+            'ug_api', 'per_transaction_fee', 'is_subscription_fee',
             'due_threshold', 'is_whatsapp_usage', 'whatsapp_per_usage',
             'whatsapp_template_marketing', 'whatsapp_template_imagemarketing',
             'share_distribution_day', 'balance',
