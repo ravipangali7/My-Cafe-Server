@@ -42,6 +42,20 @@ def login(request):
                 status=status.HTTP_403_FORBIDDEN
             )
         
+        # Strict validation: country code and phone must both match the account
+        def _normalize_country_code(cc):
+            if cc is None:
+                return ''
+            s = str(cc).strip().lstrip('+')
+            return ''.join(c for c in s if c.isdigit()) or s
+        req_cc = _normalize_country_code(country_code)
+        user_cc = _normalize_country_code(getattr(user, 'country_code', None) or '91')
+        if req_cc != user_cc:
+            return Response(
+                {'error': 'Country code and phone number do not match.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
         # Create or get session
         from django.contrib.auth import login as django_login
         from datetime import date
@@ -51,11 +65,6 @@ def login(request):
         request.session.modified = True
         # Explicitly save the session to ensure cookie is set
         request.session.save()
-        
-        # Update country_code if provided (in case user changed it during login)
-        if country_code and user.country_code != country_code:
-            user.country_code = country_code
-            user.save(update_fields=['country_code'])
         
         # Check KYC status
         kyc_status = user.kyc_status
