@@ -7,7 +7,7 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
-from django.http import HttpResponse, FileResponse
+from django.http import HttpResponse
 from django.core.files.base import ContentFile
 from django.conf import settings
 from django.db.models import Sum
@@ -182,13 +182,11 @@ def invoice_download(request, order_id):
             invoice.total_amount = order.total
             invoice.save()
         
-        # Return PDF file as response (storage-agnostic: works with local and remote storage)
+        # Return PDF from memory so response is independent of storage/file handle lifecycle
         try:
-            file_handle = invoice.pdf_file.open('rb')
-            response = FileResponse(
-                file_handle,
-                content_type='application/pdf'
-            )
+            with invoice.pdf_file.open('rb') as f:
+                pdf_bytes = f.read()
+            response = HttpResponse(pdf_bytes, content_type='application/pdf')
             response['Content-Disposition'] = f'attachment; filename="invoice_order_{order.id}.pdf"'
             return response
         except Exception as e:
@@ -423,13 +421,11 @@ def invoice_public_download(request, order_id, token):
             invoice.total_amount = order.total
             invoice.save()
         
-        # Return PDF file as response
+        # Return PDF from memory so response is independent of storage/file handle lifecycle
         try:
-            file_handle = invoice.pdf_file.open('rb')
-            response = FileResponse(
-                file_handle,
-                content_type='application/pdf'
-            )
+            with invoice.pdf_file.open('rb') as f:
+                pdf_bytes = f.read()
+            response = HttpResponse(pdf_bytes, content_type='application/pdf')
             response['Content-Disposition'] = f'attachment; filename="invoice_order_{order.id}.pdf"'
             return response
         except Exception as e:

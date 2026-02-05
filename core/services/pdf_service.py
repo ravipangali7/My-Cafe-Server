@@ -41,7 +41,8 @@ class BeigeInvoiceCanvas(canvas.Canvas):
         super().__init__(*args, **kwargs)
         self.footer_height = 0.28 * inch
 
-    def showPage(self):
+    def _startPage(self):
+        """Draw background and footer at the start of each page so they sit under content."""
         self.saveState()
         # Beige background
         self.setFillColor(LIGHT_BEIGE)
@@ -50,6 +51,9 @@ class BeigeInvoiceCanvas(canvas.Canvas):
         self.setFillColor(FOOTER_GREEN)
         self.rect(0, 0, letter[0], self.footer_height, fill=1, stroke=0)
         self.restoreState()
+        super()._startPage()
+
+    def showPage(self):
         super().showPage()
 
 
