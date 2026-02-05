@@ -186,6 +186,22 @@ def invoice_download(request, order_id):
         try:
             with invoice.pdf_file.open('rb') as f:
                 pdf_bytes = f.read()
+            # If stored PDF is empty or invalid, regenerate once
+            if len(pdf_bytes) < 100:
+                invoice.pdf_file.delete(save=False)
+                invoice.pdf_file = None
+                invoice.save()
+                pdf_file = generate_order_invoice(order)
+                invoice.pdf_file.save(pdf_file.name, pdf_file, save=True)
+                invoice.total_amount = order.total
+                invoice.save()
+                with invoice.pdf_file.open('rb') as f:
+                    pdf_bytes = f.read()
+                if len(pdf_bytes) < 100:
+                    return Response(
+                        {'error': 'Failed to generate invoice PDF'},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
             response = HttpResponse(pdf_bytes, content_type='application/pdf')
             response['Content-Disposition'] = f'attachment; filename="invoice_order_{order.id}.pdf"'
             return response
@@ -425,6 +441,22 @@ def invoice_public_download(request, order_id, token):
         try:
             with invoice.pdf_file.open('rb') as f:
                 pdf_bytes = f.read()
+            # If stored PDF is empty or invalid, regenerate once
+            if len(pdf_bytes) < 100:
+                invoice.pdf_file.delete(save=False)
+                invoice.pdf_file = None
+                invoice.save()
+                pdf_file = generate_order_invoice(order)
+                invoice.pdf_file.save(pdf_file.name, pdf_file, save=True)
+                invoice.total_amount = order.total
+                invoice.save()
+                with invoice.pdf_file.open('rb') as f:
+                    pdf_bytes = f.read()
+                if len(pdf_bytes) < 100:
+                    return Response(
+                        {'error': 'Failed to generate invoice PDF'},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
             response = HttpResponse(pdf_bytes, content_type='application/pdf')
             response['Content-Disposition'] = f'attachment; filename="invoice_order_{order.id}.pdf"'
             return response

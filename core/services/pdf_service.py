@@ -374,5 +374,7 @@ def generate_order_invoice(order):
 
     pdf = buffer.getvalue()
     buffer.close()
+    if len(pdf) < 100:
+        raise ValueError("Generated PDF is empty or invalid")
     filename = f'invoice_order_{order.id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
     return ContentFile(pdf, name=filename)
