@@ -157,10 +157,21 @@ def register(request):
         )
 
 
-@api_view(['GET'])
+@api_view(['GET', 'POST'])
 def logout(request):
-    """Logout current user"""
+    """Logout current user. If POST with fcm_token in body, remove that device's FCM token before logout."""
     from django.contrib.auth import logout as django_logout
+
+    # Remove this device's FCM token before ending session (only while user is still authenticated)
+    if request.method == 'POST' and request.user.is_authenticated:
+        try:
+            data = json.loads(request.body) if request.body else {}
+        except (json.JSONDecodeError, ValueError):
+            data = {}
+        fcm_token = data.get('fcm_token') if isinstance(data, dict) else None
+        if fcm_token and isinstance(fcm_token, str) and fcm_token.strip():
+            FcmToken.objects.filter(user=request.user, token=fcm_token.strip()).delete()
+
     django_logout(request)
     return Response({'message': 'Logout successful'}, status=status.HTTP_200_OK)
 
