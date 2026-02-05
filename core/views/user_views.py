@@ -159,7 +159,9 @@ def register(request):
 
 @api_view(['GET', 'POST'])
 def logout(request):
-    """Logout current user. If POST with fcm_token in body, remove that device's FCM token before logout."""
+    """Logout current user. If POST with fcm_token in body, remove that device's FCM token before logout.
+    Session is invalidated only after successful FCM token deletion (or when no token provided).
+    On FCM delete failure we return 500 and do not invalidate the session."""
     from django.contrib.auth import logout as django_logout
 
     # Remove this device's FCM token before ending session (only while user is still authenticated)
@@ -170,7 +172,13 @@ def logout(request):
             data = {}
         fcm_token = data.get('fcm_token') if isinstance(data, dict) else None
         if fcm_token and isinstance(fcm_token, str) and fcm_token.strip():
-            FcmToken.objects.filter(user=request.user, token=fcm_token.strip()).delete()
+            try:
+                FcmToken.objects.filter(user=request.user, token=fcm_token.strip()).delete()
+            except Exception as e:
+                return Response(
+                    {'error': 'Failed to delete FCM token', 'detail': str(e)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
     django_logout(request)
     return Response({'message': 'Logout successful'}, status=status.HTTP_200_OK)
