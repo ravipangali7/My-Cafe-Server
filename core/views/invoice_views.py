@@ -141,17 +141,17 @@ def invoice_download(request, order_id):
         )
     
     try:
-        # Get order - superusers can access any order, regular users only their own
+        # Get order with items prefetched for PDF generation - superusers any order, others own only
+        order_qs = Order.objects.prefetch_related('items__product', 'items__product_variant__unit')
         if request.user.is_superuser:
-            order = Order.objects.get(id=order_id)
+            order = order_qs.get(id=order_id)
         else:
-            order = Order.objects.get(id=order_id, user=request.user)
+            order = order_qs.get(id=order_id, user=request.user)
         
         # Get or create invoice
         try:
             invoice = Invoice.objects.get(order=order)
         except Invoice.DoesNotExist:
-            # Generate invoice if it doesn't exist
             invoice, _ = Invoice.objects.get_or_create(
                 order=order,
                 defaults={
@@ -159,20 +159,15 @@ def invoice_download(request, order_id):
                     'total_amount': order.total
                 }
             )
-            
-            # Generate PDF
-            pdf_file = generate_order_invoice(order)
-            invoice.pdf_file.save(
-                pdf_file.name,
-                pdf_file,
-                save=True
-            )
-            invoice.total_amount = order.total
+        
+        # Staleness: if stored PDF exists but order total changed, clear and regenerate
+        if invoice.pdf_file and invoice.pdf_file.name and invoice.total_amount != order.total:
+            invoice.pdf_file.delete(save=False)
+            invoice.pdf_file = None
             invoice.save()
         
-        # Check if PDF file exists
+        # Generate PDF if missing (or was just invalidated)
         if not invoice.pdf_file or not invoice.pdf_file.name:
-            # Generate PDF if missing
             pdf_file = generate_order_invoice(order)
             invoice.pdf_file.save(
                 pdf_file.name,
@@ -426,7 +421,13 @@ def invoice_public_download(request, order_id, token):
             }
         )
         
-        # Generate PDF if missing
+        # Staleness: if stored PDF exists but order total changed, clear and regenerate
+        if invoice.pdf_file and invoice.pdf_file.name and invoice.total_amount != order.total:
+            invoice.pdf_file.delete(save=False)
+            invoice.pdf_file = None
+            invoice.save()
+        
+        # Generate PDF if missing (or was just invalidated)
         if not invoice.pdf_file or not invoice.pdf_file.name:
             pdf_file = generate_order_invoice(order)
             invoice.pdf_file.save(

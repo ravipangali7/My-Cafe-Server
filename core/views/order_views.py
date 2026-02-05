@@ -18,6 +18,18 @@ from ..utils.order_action_token import verify_order_action_token
 logger = logging.getLogger(__name__)
 
 
+def _invalidate_invoice_pdf(order):
+    """Clear stored invoice PDF for an order so the next download/view regenerates it."""
+    try:
+        invoice = Invoice.objects.get(order=order)
+        if invoice.pdf_file and invoice.pdf_file.name:
+            invoice.pdf_file.delete(save=False)
+        invoice.pdf_file = None
+        invoice.save()
+    except Invoice.DoesNotExist:
+        pass
+
+
 @api_view(['GET'])
 def order_list(request):
     """Get all orders for the authenticated user with filtering, search, and pagination"""
@@ -494,6 +506,10 @@ def order_edit(request, id):
             except (json.JSONDecodeError, ValueError):
                 # Skip item updates on invalid JSON (same as current behavior)
                 pass
+        
+        # Invalidate stored invoice PDF when order total or items changed
+        if total or items_data:
+            _invalidate_invoice_pdf(order)
         
         serializer = OrderSerializer(order, context={'request': request})
         return Response({'order': serializer.data}, status=status.HTTP_200_OK)
