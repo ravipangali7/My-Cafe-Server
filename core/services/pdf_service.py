@@ -1,375 +1,335 @@
 """
 PDF Generation Service for Order Invoices
+Single-page layout matching reference design: beige background, accent dividers, olive footer.
 """
 import os
 from io import BytesIO
-from decimal import Decimal
 from datetime import datetime
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, KeepTogether
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer,
+    Image,
+)
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 from reportlab.pdfgen import canvas
 from PIL import Image as PILImage
-from django.conf import settings
 from django.core.files.base import ContentFile
-from django.core.files.storage import default_storage
 from ..models import Invoice
 from .logo_service import generate_logo_image
+
+
+# Design colors (from reference image)
+LIGHT_BEIGE = colors.HexColor('#F8F7F2')
+ACCENT = colors.HexColor('#CC9999')
+FOOTER_GREEN = colors.HexColor('#8C9C66')
+DARK_GRAY = colors.HexColor('#333333')
+WHITE = colors.white
+
+
+class BeigeInvoiceCanvas(canvas.Canvas):
+    """Canvas that draws beige page background and olive footer band."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.footer_height = 0.28 * inch
+
+    def showPage(self):
+        self.saveState()
+        # Beige background
+        self.setFillColor(LIGHT_BEIGE)
+        self.rect(0, 0, letter[0], letter[1], fill=1, stroke=0)
+        # Olive footer band
+        self.setFillColor(FOOTER_GREEN)
+        self.rect(0, 0, letter[0], self.footer_height, fill=1, stroke=0)
+        self.restoreState()
+        super().showPage()
 
 
 def generate_order_invoice(order):
     """
     Generate a PDF invoice for an order matching the image design.
+    Single-page, centered layout: logo, title, FROM/TO, table, summary, terms/payment, olive footer.
     Returns the PDF file as a ContentFile.
     """
-    # Create a BytesIO buffer for the PDF
     buffer = BytesIO()
-    
-    # Create the PDF document with minimal margins
     doc = SimpleDocTemplate(
         buffer,
         pagesize=letter,
-        rightMargin=0.3*inch,
-        leftMargin=0.3*inch,
-        topMargin=0.3*inch,
-        bottomMargin=0.3*inch
+        rightMargin=0.5 * inch,
+        leftMargin=0.5 * inch,
+        topMargin=0.4 * inch,
+        bottomMargin=0.5 * inch,
     )
-    
-    # Container for the 'Flowable' objects
     elements = []
-    
-    # Define color constants
-    DARK_BLUE = colors.HexColor('#1C455A')
-    ORANGE = colors.HexColor('#FF8C00')
-    WHITE = colors.white
-    DARK_GRAY = colors.HexColor('#333333')
-    LIGHT_GRAY = colors.HexColor('#e0e0e0')
-    LIGHT_BG = colors.HexColor('#f5f5f5')
-    
-    # Define styles
     styles = getSampleStyleSheet()
-    
-    # White text style for left panel
-    white_text_style = ParagraphStyle(
-        'WhiteText',
+
+    # Styles
+    title_style = ParagraphStyle(
+        'InvoiceTitle',
         parent=styles['Normal'],
-        fontSize=10,
-        textColor=WHITE,
-        leading=14,
-        fontName='Helvetica'
-    )
-    
-    # Bold white text style for left panel headings
-    white_bold_style = ParagraphStyle(
-        'WhiteBold',
-        parent=styles['Normal'],
-        fontSize=11,
-        textColor=WHITE,
-        leading=14,
-        fontName='Helvetica-Bold'
-    )
-    
-    # Logo placeholder style
-    logo_style = ParagraphStyle(
-        'LogoStyle',
-        parent=styles['Heading1'],
-        fontSize=24,
-        textColor=WHITE,
-        alignment=TA_LEFT,
-        fontName='Helvetica-Bold',
-        leading=28
-    )
-    
-    # Dark gray text style for right panel
-    dark_text_style = ParagraphStyle(
-        'DarkText',
-        parent=styles['Normal'],
-        fontSize=10,
+        fontSize=28,
         textColor=DARK_GRAY,
-        leading=14,
-        fontName='Helvetica'
-    )
-    
-    # Orange title style
-    orange_title_style = ParagraphStyle(
-        'OrangeTitle',
-        parent=styles['Heading1'],
-        fontSize=36,
-        textColor=ORANGE,
         alignment=TA_CENTER,
-        fontName='Helvetica-Bold',
-        leading=42
+        fontName='Times-Bold',
+        leading=32,
     )
-    
-    # Invoice number style (small, left-aligned)
+    heading_style = ParagraphStyle(
+        'Heading',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=DARK_GRAY,
+        fontName='Helvetica-Bold',
+        leading=10,
+    )
+    body_style = ParagraphStyle(
+        'Body',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=DARK_GRAY,
+        leading=12,
+        fontName='Helvetica',
+    )
+    body_bold_style = ParagraphStyle(
+        'BodyBold',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=DARK_GRAY,
+        leading=12,
+        fontName='Helvetica-Bold',
+    )
     invoice_num_style = ParagraphStyle(
         'InvoiceNum',
         parent=styles['Normal'],
-        fontSize=9,
+        fontSize=8,
         textColor=DARK_GRAY,
-        alignment=TA_LEFT,
+        alignment=TA_CENTER,
         fontName='Helvetica',
-        leading=12
+        leading=10,
     )
-    
-    # Date label style
-    date_label_style = ParagraphStyle(
-        'DateLabel',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=DARK_GRAY,
-        fontName='Helvetica-Bold',
-        leading=12
-    )
-    
-    # Date value style
-    date_value_style = ParagraphStyle(
-        'DateValue',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=DARK_GRAY,
-        fontName='Helvetica',
-        leading=12
-    )
-    
-    # Footer orange text style
-    footer_orange_style = ParagraphStyle(
-        'FooterOrange',
-        parent=styles['Normal'],
-        fontSize=11,
-        textColor=ORANGE,
-        alignment=TA_LEFT,
-        fontName='Helvetica-Bold',
-        leading=14
-    )
-    
-    # Footer heading style
-    footer_heading_style = ParagraphStyle(
-        'FooterHeading',
+    banner_text_style = ParagraphStyle(
+        'BannerText',
         parent=styles['Normal'],
         fontSize=10,
-        textColor=DARK_GRAY,
-        alignment=TA_LEFT,
+        textColor=WHITE,
+        alignment=TA_CENTER,
         fontName='Helvetica-Bold',
-        leading=14
+        leading=12,
     )
-    
-    # Get vendor information
+
     vendor = order.user
     vendor_name = vendor.name if vendor else "Unknown Vendor"
     vendor_phone = vendor.phone if vendor else ""
+    vendor_address = getattr(vendor, 'address', None) or ""
     vendor_logo_path = None
-    
     if vendor and vendor.logo:
         vendor_logo_path = vendor.logo.path
         if not os.path.exists(vendor_logo_path):
             vendor_logo_path = None
-    
-    # Get invoice number
+
     try:
-        invoice = Invoice.objects.get(order=order)
-        invoice_number = invoice.invoice_number
+        inv = Invoice.objects.get(order=order)
+        invoice_number = inv.invoice_number
     except Invoice.DoesNotExist:
         invoice_number = f'INV-{order.id:03d}'
-    
-    # Format invoice date
+
     invoice_date = order.created_at.strftime('%B %d, %Y')
-    
-    # Build LEFT PANEL (Dark Blue)
-    left_panel_elements = []
-    
-    # Logo area
+    order_date_short = order.created_at.strftime('%m/%d/%Y')
+
+    # --- Logo (centered) ---
+    logo_flowable = None
     if vendor_logo_path:
         try:
             logo_img = PILImage.open(vendor_logo_path)
             logo_img.thumbnail((120, 120), PILImage.Resampling.LANCZOS)
-            logo_buffer = BytesIO()
-            logo_img.save(logo_buffer, format='PNG')
-            logo_buffer.seek(0)
-            logo = Image(logo_buffer, width=1.5*inch, height=1.5*inch)
-            left_panel_elements.append(logo)
+            logo_buf = BytesIO()
+            logo_img.save(logo_buf, format='PNG')
+            logo_buf.seek(0)
+            logo_flowable = Image(logo_buf, width=1.2 * inch, height=1.2 * inch)
         except Exception:
-            left_panel_elements.append(Paragraph("Your® LOGO", logo_style))
-    else:
-        # Auto-generated logo from vendor name
+            pass
+    if logo_flowable is None:
         try:
-            logo_buffer = generate_logo_image(vendor_name, size=(120, 120))
-            logo = Image(logo_buffer, width=1.5*inch, height=1.5*inch)
-            left_panel_elements.append(logo)
+            logo_buf = generate_logo_image(vendor_name, size=(120, 120))
+            logo_buf.seek(0)
+            logo_flowable = Image(logo_buf, width=1.2 * inch, height=1.2 * inch)
         except Exception:
-            left_panel_elements.append(Paragraph("Your® LOGO", logo_style))
-    
-    left_panel_elements.append(Spacer(1, 0.4*inch))
-    
-    # FROM section
-    from_section = f"""
-    <b>FROM</b><br/><br/>
-    <b>{vendor_name}</b><br/>
-    Phone: {vendor_phone}
-    """
-    left_panel_elements.append(Paragraph(from_section, white_text_style))
-    left_panel_elements.append(Spacer(1, 0.5*inch))
-    
-    # TO section
-    to_section = f"""
-    <b>TO</b><br/><br/>
-    <b>{order.name}</b><br/>
-    {order.table_no or ''}
-    """
-    left_panel_elements.append(Paragraph(to_section, white_text_style))
-    
-    # Create left panel table with dark blue background
-    left_panel_table = Table([[left_panel_elements]], colWidths=[2*inch])
-    left_panel_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), DARK_BLUE),
-        ('LEFTPADDING', (0, 0), (-1, -1), 20),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 20),
-        ('TOPPADDING', (0, 0), (-1, -1), 30),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 30),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            logo_flowable = Paragraph("LOGO", body_bold_style)
+
+    # Logo in a centered cell with accent border effect (table with padding acts as "ring")
+    logo_table = Table(
+        [[logo_flowable]],
+        colWidths=[1.4 * inch],
+        rowHeights=[1.4 * inch],
+    )
+    logo_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOX', (0, 0), (-1, -1), 2, ACCENT),
+        ('BACKGROUND', (0, 0), (-1, -1), LIGHT_BEIGE),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
     ]))
-    
-    # Build RIGHT PANEL (White)
-    right_panel_elements = []
-    
-    # Large orange INVOICE title
-    right_panel_elements.append(Paragraph("INVOICE", orange_title_style))
-    right_panel_elements.append(Spacer(1, 0.3*inch))
-    
-    # Invoice date only (no due date)
-    right_panel_elements.append(Paragraph("INVOICE DATE", date_label_style))
-    right_panel_elements.append(Paragraph(invoice_date, date_value_style))
-    right_panel_elements.append(Spacer(1, 0.1*inch))
-    
-    # Invoice number below invoice date
-    invoice_num_text = f"INVOICE NO. {invoice_number}"
-    right_panel_elements.append(Paragraph(invoice_num_text, invoice_num_style))
-    right_panel_elements.append(Spacer(1, 0.4*inch))
-    
-    # Itemized table
-    table_data = [['DESCRIPTION', 'QUANTITY', 'RATE', 'AMOUNT']]
-    
-    # Fetch order items
+    elements.append(Table([[logo_table]], colWidths=[7 * inch]))
+    elements[-1].setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
+
+    # Vendor name banner (optional strip in accent)
+    banner_para = Paragraph(vendor_name.upper()[:40], banner_text_style)
+    banner_tbl = Table([[banner_para]], colWidths=[2 * inch])
+    banner_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), ACCENT),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    wrap_banner = Table([[banner_tbl]], colWidths=[7 * inch])
+    wrap_banner.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
+    elements.append(wrap_banner)
+    elements.append(Spacer(1, 0.15 * inch))
+
+    # --- Invoice title ---
+    elements.append(Paragraph("Invoice", title_style))
+    elements.append(Paragraph(invoice_number, invoice_num_style))
+    elements.append(Spacer(1, 0.35 * inch))
+
+    # --- INVOICE FROM | INVOICE TO ---
+    from_para = Paragraph(
+        f"<b>INVOICE FROM</b><br/><br/><b>{vendor_name}</b><br/>{vendor_phone or '—'}<br/>{vendor_address or '—'}",
+        body_style,
+    )
+    to_para = Paragraph(
+        f"<b>INVOICE TO</b><br/><br/><b>{order.name or '—'}</b><br/>{order.phone or '—'}<br/>{order.table_no or '—'}",
+        body_style,
+    )
+    from_to_table = Table(
+        [[from_para, to_para]],
+        colWidths=[3.5 * inch, 3.5 * inch],
+    )
+    from_to_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (0, -1), 0),
+        ('RIGHTPADDING', (1, 0), (1, -1), 0),
+    ]))
+    elements.append(from_to_table)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # --- Divider (accent line) ---
+    divider = Table([[""]], colWidths=[7 * inch], rowHeights=[3])
+    divider.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), ACCENT),
+        ('LINEABOVE', (0, 0), (-1, -1), 0, ACCENT),
+        ('LINEBELOW', (0, 0), (-1, -1), 0, ACCENT),
+    ]))
+    elements.append(divider)
+    elements.append(Spacer(1, 0.15 * inch))
+
+    # --- Items table: DESCRIPTION, QTY, PRICE, TOTAL ---
     order_items = order.items.select_related('product', 'product_variant__unit').all()
-    
+    table_data = [['DESCRIPTION', 'QTY', 'PRICE', 'TOTAL']]
     for item in order_items:
         product = item.product
         product_name = product.name if product else "Unknown Product"
-        quantity = item.quantity
-        unit_price = float(item.price)
-        subtotal = float(item.total)
-        
-        # Get variant info
         variant_info = ""
         if item.product_variant and item.product_variant.unit:
             variant_info = f" ({item.product_variant.unit.symbol})"
-        
         table_data.append([
-            Paragraph(f"{product_name}{variant_info}", dark_text_style),
-            Paragraph(str(quantity), dark_text_style),
-            Paragraph(f"{unit_price:.2f}", dark_text_style),
-            Paragraph(f"{subtotal:.2f}", dark_text_style)
+            Paragraph(f"{product_name}{variant_info}", body_style),
+            Paragraph(str(item.quantity), body_style),
+            Paragraph(f"{float(item.price):.2f}", body_style),
+            Paragraph(f"{float(item.total):.2f}", body_style),
         ])
-    
-    # Create items table with orange header (adjusted widths to fit)
-    items_table = Table(table_data, colWidths=[2.8*inch, 0.85*inch, 0.85*inch, 0.85*inch])
+
+    items_table = Table(
+        table_data,
+        colWidths=[3.8 * inch, 0.9 * inch, 1.1 * inch, 1.2 * inch],
+    )
     items_table.setStyle(TableStyle([
-        # Header row - orange background
-        ('BACKGROUND', (0, 0), (-1, 0), ORANGE),
-        ('TEXTCOLOR', (0, 0), (-1, 0), WHITE),
-        ('ALIGN', (0, 0), (0, 0), 'LEFT'),  # DESCRIPTION left
-        ('ALIGN', (1, 0), (1, 0), 'CENTER'),  # QUANTITY center
-        ('ALIGN', (2, 0), (2, 0), 'CENTER'),  # RATE center
-        ('ALIGN', (3, 0), (3, 0), 'RIGHT'),  # AMOUNT right
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('TOPPADDING', (0, 0), (-1, 0), 12),
-        # Data rows
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 9),
-        ('ALIGN', (0, 1), (0, -1), 'LEFT'),  # DESCRIPTION left
-        ('ALIGN', (1, 1), (1, -1), 'CENTER'),  # QUANTITY center
-        ('ALIGN', (2, 1), (2, -1), 'CENTER'),  # RATE center
-        ('ALIGN', (3, 1), (3, -1), 'RIGHT'),  # AMOUNT right
-        ('TEXTCOLOR', (0, 1), (-1, -1), DARK_GRAY),
-        ('GRID', (0, 0), (-1, -1), 0.5, LIGHT_GRAY),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('TEXTCOLOR', (0, 0), (-1, 0), DARK_GRAY),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('LINEABOVE', (0, 0), (-1, 0), 1.5, ACCENT),
+        ('LINEBELOW', (0, 0), (-1, 0), 1.5, ACCENT),
+        ('LINEBELOW', (0, -1), (-1, -1), 0.5, ACCENT),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('LEFTPADDING', (0, 1), (-1, -1), 8),
-        ('RIGHTPADDING', (0, 1), (-1, -1), 12),
-        ('TOPPADDING', (0, 1), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
     ]))
-    
-    right_panel_elements.append(items_table)
-    right_panel_elements.append(Spacer(1, 0.4*inch))
-    
-    # Summary section
+    elements.append(items_table)
+    elements.append(Spacer(1, 0.25 * inch))
+
+    # --- Summary: Subtotal, Tax, Total ---
     total_amount = float(order.total)
-    
+    subtotal_amount = sum(float(i.total) for i in order_items)
+    tax_pct = 0
+    tax_amount = 0
     summary_data = [
-        ['Subtotal:', f'{total_amount:.2f}'],
-        ['GRAND TOTAL:', f'{total_amount:.2f}'],
+        [Paragraph("Subtotal", body_style), Paragraph(f"{subtotal_amount:.2f}", body_style)],
+        [Paragraph(f"Tax ({tax_pct}%)", body_style), Paragraph(f"{tax_amount:.2f}", body_style)],
+        [Paragraph("Total", body_bold_style), Paragraph(f"{total_amount:.2f}", body_bold_style)],
     ]
-    
-    summary_table = Table(summary_data, colWidths=[3.5*inch, 1.2*inch])
+    summary_table = Table(summary_data, colWidths=[1.2 * inch, 1.2 * inch])
     summary_table.setStyle(TableStyle([
         ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
         ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('FONTNAME', (0, 0), (0, 0), 'Helvetica'),
-        ('FONTNAME', (0, 1), (1, 1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (0, 0), 10),
-        ('FONTSIZE', (0, 1), (1, 1), 12),
-        ('TEXTCOLOR', (0, 0), (1, 0), DARK_GRAY),
-        ('TEXTCOLOR', (0, 1), (1, 1), DARK_GRAY),
-        ('LINEABOVE', (0, 1), (1, 1), 2, DARK_GRAY),
-        ('TOPPADDING', (0, 1), (1, 1), 12),
-        ('BOTTOMPADDING', (0, 1), (1, 1), 12),
-        ('BACKGROUND', (0, 1), (1, 1), LIGHT_BG),
-        ('RIGHTPADDING', (1, 0), (1, -1), 15),
+        ('FONTSIZE', (0, 2), (1, 2), 10),
+        ('LINEABOVE', (0, 2), (1, 2), 1, ACCENT),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
-    
-    right_panel_elements.append(summary_table)
-    right_panel_elements.append(Spacer(1, 0.5*inch))
-    
-    # Footer
-    footer_text = Paragraph("Thank you for our partnership!", footer_orange_style)
-    right_panel_elements.append(footer_text)
-    
-    # Create right panel table
-    right_panel_table = Table([[right_panel_elements]], colWidths=[5*inch])
-    right_panel_table.setStyle(TableStyle([
-        ('LEFTPADDING', (0, 0), (-1, -1), 20),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 35),
-        ('TOPPADDING', (0, 0), (-1, -1), 30),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 30),
+    summary_wrapper = Table([[summary_table]], colWidths=[7 * inch])
+    summary_wrapper.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'RIGHT')]))
+    elements.append(summary_wrapper)
+    elements.append(Spacer(1, 0.3 * inch))
+
+    # --- TERMS & CONDITIONS | PAYMENT METHOD ---
+    terms_text = "Thank you for your order."
+    txn = order.transactions.filter(status='success').first()
+    if txn and getattr(txn, 'ug_order_id', None):
+        payment_method = "Online"
+    elif txn and getattr(txn, 'vpa', None) and txn.vpa:
+        payment_method = "UPI"
+    elif txn:
+        payment_method = "Other"
+    else:
+        payment_method = "Pending"
+
+    terms_para = Paragraph(
+        f"<b>TERMS &amp; CONDITIONS</b><br/><br/>{terms_text}",
+        body_style,
+    )
+    payment_para = Paragraph(
+        f"<b>PAYMENT METHOD</b><br/><br/>"
+        f"Payment: {payment_method or '—'}<br/>Date: {order_date_short}",
+        body_style,
+    )
+    terms_payment_table = Table(
+        [[terms_para, payment_para]],
+        colWidths=[3.5 * inch, 3.5 * inch],
+    )
+    terms_payment_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (1, 0), (1, -1), 20),
     ]))
-    
-    # Create main two-column layout
-    main_table = Table([[left_panel_table, right_panel_table]], colWidths=[2*inch, 5*inch])
-    main_table.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 0),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-        ('TOPPADDING', (0, 0), (-1, -1), 0),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-    ]))
-    
-    elements.append(main_table)
-    
-    # Build PDF
-    doc.build(elements)
-    
-    # Get the value of the BytesIO buffer
+    elements.append(terms_payment_table)
+    elements.append(Spacer(1, 0.4 * inch))
+
+    # Build PDF with custom canvas (beige background + olive footer)
+    doc.build(elements, canvasmaker=BeigeInvoiceCanvas)
+
     pdf = buffer.getvalue()
     buffer.close()
-    
-    # Create a ContentFile from the PDF
     filename = f'invoice_order_{order.id}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
-    pdf_file = ContentFile(pdf, name=filename)
-    
-    return pdf_file
+    return ContentFile(pdf, name=filename)
