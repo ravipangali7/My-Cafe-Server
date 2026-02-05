@@ -160,15 +160,20 @@ def order_create(request):
         # Calculate order amount (without fee) and total (with fee)
         order_amount = Decimal(str(total))
         total_with_fee = order_amount + Decimal(str(transaction_fee))
+        # Vendor creating order from within the system: do not add service/transaction fee
+        is_vendor_created = (
+            request.user.is_authenticated and request.user == order_user
+        )
+        order_total = order_amount if is_vendor_created else total_with_fee
         
-        # Create order with total including transaction fee (table_no optional)
+        # Create order with total (including fee only for non-vendor-created orders)
         order = Order.objects.create(
             name=name,
             phone=phone,
             table_no=table_no or '',
             status=status_val,
             payment_status=payment_status,
-            total=total_with_fee,
+            total=order_total,
             fcm_token=fcm_token,
             user=order_user
         )
@@ -225,9 +230,9 @@ def order_create(request):
         serializer = OrderSerializer(order, context={'request': request})
         return Response({
             'order': serializer.data,
-            'transaction_fee': transaction_fee,
+            'transaction_fee': 0 if is_vendor_created else transaction_fee,
             'order_amount': str(order_amount),
-            'total_with_fee': str(total_with_fee)
+            'total_with_fee': str(order_total)
         }, status=status.HTTP_201_CREATED)
         
     except Exception as e:
