@@ -41,6 +41,10 @@ from ..utils.transaction_helpers import (
     process_qr_stand_payment
 )
 from ..services.fcm_service import send_incoming_order_to_vendor
+from ..utils.nepal_payment import get_process_id, check_transaction_status
+from django.views.decorators.http import require_GET
+from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponse
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +62,66 @@ PREFIX_MAP = {
     PAYMENT_TYPE_SUBSCRIPTION: 'SUB',
     PAYMENT_TYPE_QR_STAND: 'QRS'
 }
+
+
+def _create_order_from_payload(transaction):
+    """Create Order from transaction.order_payload (Nepal/UG initiate-order flow). Idempotent if order already set."""
+    if transaction.order is not None or not transaction.order_payload:
+        return
+    payload = transaction.order_payload
+    order_user = transaction.user
+    try:
+        order = Order.objects.create(
+            name=payload['name'],
+            phone=payload['phone'],
+            table_no=payload.get('table_no') or '',
+            status='pending',
+            payment_status='paid',
+            total=transaction.amount,
+            fcm_token=payload.get('fcm_token') or '',
+            user=order_user
+        )
+        items_list = json.loads(payload['items']) if isinstance(payload['items'], str) else payload['items']
+        for item_data in items_list:
+            product_id = item_data.get('product_id')
+            product_variant_id = item_data.get('product_variant_id')
+            quantity = item_data.get('quantity', 1)
+            price = item_data.get('price', '0')
+            if product_id and product_variant_id:
+                try:
+                    product = Product.objects.get(id=product_id, user=order_user)
+                    product_variant = ProductVariant.objects.get(id=product_variant_id, product=product)
+                    item_total = Decimal(str(price)) * int(quantity)
+                    OrderItem.objects.create(
+                        order=order,
+                        product=product,
+                        product_variant=product_variant,
+                        price=Decimal(str(price)),
+                        quantity=int(quantity),
+                        total=item_total
+                    )
+                except (Product.DoesNotExist, ProductVariant.DoesNotExist):
+                    pass
+        transaction.order = order
+        transaction.save(update_fields=['order'])
+        super_settings = SuperSetting.objects.first()
+        transaction_fee = super_settings.per_transaction_fee if super_settings else 10
+        order_amount = transaction.amount - Decimal(str(transaction_fee))
+        process_order_transactions(
+            order=order,
+            vendor=order_user,
+            order_amount=order_amount,
+            transaction_fee=transaction_fee,
+            payment_data={
+                'utr': transaction.utr,
+                'vpa': transaction.vpa,
+                'payer_name': transaction.payer_name
+            }
+        )
+        send_incoming_order_to_vendor(order)
+        logger.info(f"Order #{order.id} created on payment success (Nepal/initiate-order flow)")
+    except Exception as e:
+        logger.error(f"Failed to create order from payload: {str(e)}")
 
 
 @api_view(['POST'])
@@ -298,14 +362,6 @@ def initiate_order_payment(request):
                 {'error': 'Name and phone are required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        # UG gateway requires customer_mobile to be exactly 10 digits
-        digits = ''.join(c for c in str(phone or '').strip() if c.isdigit())
-        customer_mobile_10 = digits[-10:] if len(digits) >= 10 else digits
-        if len(customer_mobile_10) != 10:
-            return Response(
-                {'error': 'Customer mobile number must be 10 digits'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
         if not vendor_phone:
             return Response(
                 {'error': 'vendor_phone is required'},
@@ -325,7 +381,78 @@ def initiate_order_payment(request):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Menu-based orders use the vendor's UG API so payments are routed to the correct vendor account.
+        super_settings = SuperSetting.objects.first()
+        transaction_fee = super_settings.per_transaction_fee if super_settings else 10
+        order_amount = Decimal(str(total))
+        total_with_fee = order_amount + Decimal(str(transaction_fee))
+        items_str = items_data if isinstance(items_data, str) else json.dumps(items_data)
+
+        # Nepal (977): use OnePG gateway; no 10-digit mobile requirement
+        if str(order_user.country_code or '').strip() == '977':
+            digits = ''.join(c for c in str(phone or '').strip() if c.isdigit())
+            phone_normalized = digits if digits else str(phone or '').strip()
+            order_payload = {
+                'name': name,
+                'phone': phone_normalized,
+                'table_no': table_no or '',
+                'vendor_phone': vendor_phone,
+                'total': str(total),
+                'items': items_str,
+                'fcm_token': fcm_token,
+            }
+            transaction = Transaction.objects.create(
+                user=order_user,
+                order=None,
+                qr_stand_order=None,
+                amount=total_with_fee,
+                status='pending',
+                transaction_type='in',
+                transaction_category=PAYMENT_TYPE_ORDER,
+                is_system=False,
+                remarks='Nepal Order payment (order will be created on success)',
+                order_payload=order_payload,
+            )
+            merchant_txn_id = f"ORD-{transaction.id}-{int(time.time())}"
+            transaction.nepal_merchant_txn_id = merchant_txn_id
+            transaction.save(update_fields=['nepal_merchant_txn_id'])
+
+            result = get_process_id(merchant_txn_id, str(total_with_fee))
+            if not result.get('success'):
+                transaction.delete()
+                return Response(
+                    {'error': result.get('message', 'Failed to create payment')},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            gateway_url = getattr(django_settings, 'NEPAL_PAYMENT_GATEWAY_URL', '')
+            base_url = getattr(django_settings, 'BASE_URL', '').rstrip('/')
+            response_url_backend = f"{base_url}/api/payment/nepal/response/" if base_url else ''
+            form_data = {
+                'MerchantId': str(getattr(django_settings, 'NEPAL_PAYMENT_MERCHANT_ID', '')),
+                'MerchantName': getattr(django_settings, 'NEPAL_PAYMENT_MERCHANT_NAME', ''),
+                'Amount': str(total_with_fee),
+                'MerchantTxnId': merchant_txn_id,
+                'ProcessId': result['process_id'],
+                'TransactionRemarks': 'My Cafe Order',
+                'ResponseUrl': response_url_backend,
+            }
+            return Response({
+                'success': True,
+                'gateway_url': gateway_url,
+                'form_data': form_data,
+                'merchant_txn_id': merchant_txn_id,
+                'transaction_id': transaction.id,
+                'message': 'Payment initiated successfully',
+            }, status=status.HTTP_200_OK)
+
+        # UG (India etc.): 10-digit mobile and UG gateway
+        digits = ''.join(c for c in str(phone or '').strip() if c.isdigit())
+        customer_mobile_10 = digits[-10:] if len(digits) >= 10 else digits
+        if len(customer_mobile_10) != 10:
+            return Response(
+                {'error': 'Customer mobile number must be 10 digits'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         try:
             ug_api = get_ug_api_for_menu_order(order_user)
         except ValueError as e:
@@ -334,18 +461,13 @@ def initiate_order_payment(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        settings = SuperSetting.objects.first()
-        transaction_fee = settings.per_transaction_fee if settings else 10
-        order_amount = Decimal(str(total))
-        total_with_fee = order_amount + Decimal(str(transaction_fee))
-
         order_payload = {
             'name': name,
             'phone': customer_mobile_10,
             'table_no': table_no or '',
             'vendor_phone': vendor_phone,
             'total': str(total),
-            'items': items_data if isinstance(items_data, str) else json.dumps(items_data),
+            'items': items_str,
             'fcm_token': fcm_token,
         }
 
@@ -429,19 +551,53 @@ def verify_payment(request, client_txn_id):
         - transaction: dict (transaction details)
     """
     try:
-        # Find transaction by UG client transaction ID
-        try:
-            transaction = Transaction.objects.get(ug_client_txn_id=client_txn_id)
-        except Transaction.DoesNotExist:
+        # Resolve transaction by UG client_txn_id or Nepal merchant_txn_id
+        transaction = Transaction.objects.filter(ug_client_txn_id=client_txn_id).first()
+        is_nepal = False
+        if not transaction:
+            transaction = Transaction.objects.filter(nepal_merchant_txn_id=client_txn_id).first()
+            if transaction:
+                is_nepal = True
+        if not transaction:
             return Response(
                 {'error': 'Transaction not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
-        
-        # Get vendor phone for redirect (used by frontend for non-logged-in users)
+
         vendor_phone = transaction.user.phone if transaction.user else None
-        
-        # Resolve UG API key used at initiation (menu: vendor.ug_api, non-menu: Super Settings ug_api).
+
+        # Nepal (OnePG): verify via CheckTransactionStatus and return same JSON shape
+        if is_nepal:
+            result = check_transaction_status(client_txn_id)
+            status_map = {'Success': 'success', 'Fail': 'failure', 'Pending': 'pending'}
+            mapped_status = status_map.get(result.get('status') or '', 'pending')
+            if result.get('success') and result.get('data'):
+                transaction.ug_status = mapped_status
+                transaction.status = mapped_status
+                if result['data'].get('GatewayReferenceNo'):
+                    transaction.utr = result['data']['GatewayReferenceNo']
+                transaction.save(update_fields=['ug_status', 'status', 'utr'])
+                if mapped_status == 'success' and transaction.order is None and transaction.order_payload:
+                    _create_order_from_payload(transaction)
+            return Response({
+                'success': True,
+                'status': mapped_status,
+                'transaction': {
+                    'id': transaction.id,
+                    'amount': str(transaction.amount),
+                    'utr': transaction.utr,
+                    'vpa': transaction.vpa,
+                    'status': transaction.status,
+                    'ug_status': transaction.ug_status,
+                    'ug_remark': transaction.ug_remark,
+                    'payment_type': transaction.transaction_category,
+                    'created_at': transaction.created_at.isoformat(),
+                    'vendor_phone': vendor_phone
+                },
+                'message': result.get('message', 'OK'),
+            }, status=status.HTTP_200_OK)
+
+        # UG: resolve API key and check status with UG
         try:
             api_key = resolve_ug_api_for_transaction(transaction)
         except ValueError as e:
@@ -449,8 +605,7 @@ def verify_payment(request, client_txn_id):
                 {'error': str(e)},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
-        
-        # If already processed, return cached status
+
         if transaction.ug_status in ['success', 'failure']:
             return Response({
                 'success': True,
@@ -940,6 +1095,51 @@ def payment_callback(request):
         logger.error(f"Error in payment callback: {str(e)}")
         base_url = getattr(django_settings, 'PAYMENT_REDIRECT_BASE_URL', '')
         return redirect(f"{base_url}/payment/status?error=server_error")
+
+
+@require_GET
+@csrf_exempt
+def nepal_payment_notification(request):
+    """
+    OnePG webhook: GET with MerchantTxnId, GatewayTxnId.
+    Call CheckTransactionStatus, update transaction, create order on success.
+    Return plain text: "received" / "already received".
+    """
+    merchant_txn_id = request.GET.get('MerchantTxnId')
+    request.GET.get('GatewayTxnId')  # optional, for logging
+    if not merchant_txn_id:
+        return HttpResponse('bad request', status=400)
+    try:
+        transaction = Transaction.objects.get(nepal_merchant_txn_id=merchant_txn_id)
+    except Transaction.DoesNotExist:
+        return HttpResponse('transaction not found', status=404)
+    if transaction.status == 'success':
+        return HttpResponse('already received', content_type='text/plain')
+    result = check_transaction_status(merchant_txn_id)
+    if not result.get('success'):
+        return HttpResponse('check failed', status=500)
+    status_map = {'Success': 'success', 'Fail': 'failed', 'Pending': 'pending'}
+    tx_status = status_map.get(result.get('status', ''), 'pending')
+    transaction.ug_status = tx_status
+    transaction.status = tx_status
+    if result.get('data') and result['data'].get('GatewayReferenceNo'):
+        transaction.utr = result['data']['GatewayReferenceNo']
+    transaction.save(update_fields=['ug_status', 'status', 'utr'])
+    if tx_status == 'success':
+        _create_order_from_payload(transaction)
+    return HttpResponse('received', content_type='text/plain')
+
+
+@require_GET
+def nepal_payment_response(request):
+    """
+    OnePG redirects customer here after payment. Redirect to frontend payment status page with merchant_txn_id.
+    """
+    merchant_txn_id = request.GET.get('MerchantTxnId')
+    base_url = getattr(django_settings, 'PAYMENT_REDIRECT_BASE_URL', '')
+    if not merchant_txn_id:
+        return redirect(f"{base_url}/payment/status?error=missing_txn_id")
+    return redirect(f"{base_url}/payment/status/{merchant_txn_id}")
 
 
 @api_view(['GET'])

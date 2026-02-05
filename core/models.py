@@ -301,6 +301,9 @@ class Transaction(models.Model):
     # Order payload for "initiate order payment" flow: order created only on payment success
     order_payload = models.JSONField(blank=True, null=True)
     
+    # Nepal Payment (OnePG) - MerchantTxnId for lookup in notification/verify
+    nepal_merchant_txn_id = models.CharField(max_length=100, blank=True, null=True, unique=True)
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
