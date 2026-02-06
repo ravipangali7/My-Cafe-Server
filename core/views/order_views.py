@@ -13,6 +13,7 @@ from ..services.fcm_service import send_fcm_notification, send_incoming_order_to
 from ..services.pdf_service import generate_order_invoice
 from ..services.whatsapp_service import send_order_bill_whatsapp, send_order_ready_whatsapp
 from ..utils.order_action_token import verify_order_action_token
+from ..utils.date_helpers import parse_date_range
 # NOTE: process_order_transactions is now called in payment_views.py on payment success
 
 logger = logging.getLogger(__name__)
@@ -68,11 +69,10 @@ def order_list(request):
         if payment_status:
             queryset = queryset.filter(payment_status=payment_status)
         
-        if start_date:
-            queryset = queryset.filter(created_at__gte=start_date)
-        
-        if end_date:
-            queryset = queryset.filter(created_at__lte=end_date)
+        date_range = parse_date_range(start_date, end_date)
+        if date_range:
+            start_dt, end_dt = date_range
+            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         
         # Apply search
         if search:

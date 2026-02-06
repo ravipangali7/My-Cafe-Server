@@ -5,6 +5,7 @@ from django.db.models import Q
 from django.core.paginator import Paginator
 from ..models import Transaction, TransactionHistory
 from ..serializers import TransactionSerializer, TransactionHistorySerializer
+from ..utils.date_helpers import parse_date_range
 
 
 @api_view(['GET'])
@@ -48,11 +49,10 @@ def transaction_list(request):
         if status_filter:
             queryset = queryset.filter(status=status_filter)
         
-        if start_date:
-            queryset = queryset.filter(created_at__gte=start_date)
-        
-        if end_date:
-            queryset = queryset.filter(created_at__lte=end_date)
+        date_range = parse_date_range(start_date, end_date)
+        if date_range:
+            start_dt, end_dt = date_range
+            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         
         # Apply new filters
         if transaction_type:

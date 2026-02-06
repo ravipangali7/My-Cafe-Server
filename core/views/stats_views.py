@@ -4,6 +4,7 @@ from rest_framework import status
 from django.db.models import Count, Sum, Q
 from django.utils import timezone
 from ..models import Product, Order, OrderItem, Category, TransactionHistory, Unit, User, SuperSetting, QRStandOrder
+from ..utils.date_helpers import parse_date_range
 from decimal import Decimal
 
 
@@ -93,11 +94,11 @@ def order_stats(request):
         else:
             queryset = Order.objects.filter(user=request.user)
         
-        # Apply date filters
-        if start_date:
-            queryset = queryset.filter(created_at__gte=start_date)
-        if end_date:
-            queryset = queryset.filter(created_at__lte=end_date)
+        # Apply date filters (start 00:01, end 23:59:59)
+        date_range = parse_date_range(start_date, end_date)
+        if date_range:
+            start_dt, end_dt = date_range
+            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         
         total = queryset.count()
         
@@ -217,11 +218,11 @@ def transaction_stats(request):
             # Non-superusers only see their own transactions AND exclude system transactions
             queryset = TransactionHistory.objects.filter(user=request.user, is_system=False)
         
-        # Apply date filters (align with list when frontend passes them)
-        if start_date:
-            queryset = queryset.filter(created_at__gte=start_date)
-        if end_date:
-            queryset = queryset.filter(created_at__lte=end_date)
+        # Apply date filters (start 00:01, end 23:59:59; align with list when frontend passes them)
+        date_range = parse_date_range(start_date, end_date)
+        if date_range:
+            start_dt, end_dt = date_range
+            queryset = queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         
         # Apply transaction_type filter (align with list)
         if transaction_type:
