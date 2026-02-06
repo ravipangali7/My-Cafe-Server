@@ -291,7 +291,7 @@ def generate_order_invoice(order):
     # --- Items table: IMAGE, ITEM NAME, QTY, PRICE, DISCOUNT, AMOUNT ---
     order_items = order.items.select_related('product', 'product_variant__unit').all()
     img_size = 0.55 * inch
-    table_data = [['IMAGE', 'ITEMS', 'QTY.', 'RATE', 'DISCOUNT', 'AMOUNT']]
+    table_data = [['', '', 'QTY.', 'RATE', 'DISCOUNT', 'AMOUNT']]
     for item in order_items:
         product = item.product
         product_name = product.name if product else "Unknown Product"
@@ -370,38 +370,6 @@ def generate_order_invoice(order):
     summary_wrapper.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'RIGHT')]))
     elements.append(summary_wrapper)
     elements.append(Spacer(1, 0.3 * inch))
-
-    # --- TERMS & CONDITIONS | PAYMENT METHOD ---
-    terms_text = "Thank you for your order."
-    txn = order.transactions.filter(status='success').first()
-    if txn and getattr(txn, 'ug_order_id', None):
-        payment_method = "Online"
-    elif txn and getattr(txn, 'vpa', None) and txn.vpa:
-        payment_method = "UPI"
-    elif txn:
-        payment_method = "Other"
-    else:
-        payment_method = "Pending"
-
-    terms_para = Paragraph(
-        f"<b>TERMS &amp; CONDITIONS</b><br/><br/>{terms_text}",
-        body_style,
-    )
-    payment_para = Paragraph(
-        f"<b>PAYMENT METHOD</b><br/><br/>"
-        f"Payment: {payment_method or '—'}<br/>Date: {order_date_short}",
-        body_style,
-    )
-    terms_payment_table = Table(
-        [[terms_para, payment_para]],
-        colWidths=[3.5 * inch, 3.5 * inch],
-    )
-    terms_payment_table.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (1, 0), (1, -1), 20),
-    ]))
-    elements.append(terms_payment_table)
-    elements.append(Spacer(1, 0.4 * inch))
 
     # Build PDF with custom canvas (beige background + olive footer)
     doc.build(elements, canvasmaker=BeigeInvoiceCanvas)
@@ -631,7 +599,7 @@ def generate_invoice_pdf_from_payload(payload):
 
     # --- Items table: Image, Item Name, Qty, Price, Discount, Amount (₹) ---
     img_size = 0.55 * inch
-    table_data = [['Image', 'ITEMS', 'QTY.', 'RATE', 'DISCOUNT', 'AMOUNT']]
+    table_data = [['', '', 'QTY.', 'RATE', 'DISCOUNT', 'AMOUNT']]
     for item in items:
         product_name = item.get('product_name') or 'Unknown'
         variant = item.get('variant') or {}
@@ -705,28 +673,6 @@ def generate_invoice_pdf_from_payload(payload):
     summary_wrapper.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'RIGHT')]))
     elements.append(summary_wrapper)
     elements.append(Spacer(1, 0.3 * inch))
-
-    # --- Terms & conditions | Payment method (same as React) ---
-    terms_text = order.get('remarks') or 'Thank you for your order.'
-    payment_method = order.get('payment_method') or '—'
-    terms_para = Paragraph(
-        f"<b>Terms &amp; conditions</b><br/><br/>{terms_text}",
-        body_style,
-    )
-    payment_para = Paragraph(
-        f"<b>Payment method</b><br/><br/>Payment: {payment_method}<br/>Date: {order_date_str or '—'}",
-        body_style,
-    )
-    terms_payment_table = Table(
-        [[terms_para, payment_para]],
-        colWidths=[3.5 * inch, 3.5 * inch],
-    )
-    terms_payment_table.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (1, 0), (1, -1), 20),
-    ]))
-    elements.append(terms_payment_table)
-    elements.append(Spacer(1, 0.4 * inch))
 
     doc.build(elements, canvasmaker=BeigeInvoiceCanvas)
     pdf = buffer.getvalue()
