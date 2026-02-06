@@ -203,12 +203,24 @@ PAYMENT_REDIRECT_BASE_URL = os.environ.get('PAYMENT_REDIRECT_BASE_URL', 'https:/
 # Base URL for this server (used e.g. for absolute media URLs in WhatsApp marketing)
 BASE_URL = os.environ.get('BASE_URL', 'https://mycafeserver.sewabyapar.com')
 
-# Nepal Payment (OnePG) - UAT / Sandbox
-NEPAL_PAYMENT_MERCHANT_ID = '9597'
-NEPAL_PAYMENT_MERCHANT_NAME = 'mxcafeAPG'
-NEPAL_PAYMENT_API_PASSWORD = 'MXcafe@123!'  # Set via env
-NEPAL_PAYMENT_KEY = 'key@1234'  # Signature key - set via env
-NEPAL_PAYMENT_API_BASE = 'https://apisandbox.nepalpayment.com'
-NEPAL_PAYMENT_GATEWAY_URL = 'https://gatewaysandbox.nepalpayment.com/Payment/Index'
-NEPAL_PAYMENT_NOTIFICATION_URL = 'https://mycafeserver.sewabyapar.com/api/payment/nepal/notification/'
-NEPAL_PAYMENT_RESPONSE_URL = 'https://mycafe.sewabyapar.com/payment/status'
+# Nepal Payment (OnePG) - Production (override via env for UAT/Sandbox)
+NEPAL_PAYMENT_MERCHANT_ID = os.environ.get('NEPAL_PAYMENT_MERCHANT_ID', '9597')
+NEPAL_PAYMENT_MERCHANT_NAME = os.environ.get('NEPAL_PAYMENT_MERCHANT_NAME', 'mxcafeAPG')
+NEPAL_PAYMENT_API_PASSWORD = os.environ.get('NEPAL_PAYMENT_API_PASSWORD', 'MXcafe@123!')
+NEPAL_PAYMENT_KEY = os.environ.get('NEPAL_PAYMENT_KEY', 'key@1234')
+NEPAL_PAYMENT_API_BASE = os.environ.get(
+    'NEPAL_PAYMENT_API_BASE',
+    'https://api.nepalpayment.com',
+)
+NEPAL_PAYMENT_GATEWAY_URL = os.environ.get(
+    'NEPAL_PAYMENT_GATEWAY_URL',
+    'https://gateway.nepalpayment.com/Payment/Index',
+)
+NEPAL_PAYMENT_NOTIFICATION_URL = os.environ.get(
+    'NEPAL_PAYMENT_NOTIFICATION_URL',
+    'https://mycafeserver.sewabyapar.com/api/payment/nepal/notification/',
+)
+NEPAL_PAYMENT_RESPONSE_URL = os.environ.get(
+    'NEPAL_PAYMENT_RESPONSE_URL',
+    'https://mycafe.sewabyapar.com/payment/status',
+)
