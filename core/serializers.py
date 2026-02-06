@@ -14,7 +14,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'name', 'phone', 'country_code', 'logo_url', 'expire_date', 'is_active', 'is_superuser',
+            'id', 'name', 'phone', 'country_code', 'logo_url', 'expire_date', 'is_active', 'is_online', 'is_superuser',
             'kyc_status', 'kyc_reject_reason', 'kyc_document_type', 'kyc_document_url',
             'subscription_start_date', 'subscription_end_date',
             'address', 'ug_api', 'balance', 'due_balance', 

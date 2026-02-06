@@ -295,6 +295,12 @@ def vendor_edit(request, id):
                 vendor.is_active = is_active_value.lower() in ('true', '1', 'yes')
             else:
                 vendor.is_active = bool(is_active_value) if is_active_value is not None else True
+        if 'is_online' in data:
+            is_online_value = data.get('is_online')
+            if isinstance(is_online_value, str):
+                vendor.is_online = is_online_value.lower() in ('true', '1', 'yes')
+            else:
+                vendor.is_online = bool(is_online_value) if is_online_value is not None else True
         
         # Only superusers can change is_superuser and password
         if request.user.is_superuser:

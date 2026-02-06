@@ -37,6 +37,7 @@ class User(AbstractUser):
     expire_date = models.DateField(null=True, blank=True)
     token = models.CharField(max_length=500, null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    is_online = models.BooleanField(default=True)
     
     # KYC Fields
     kyc_status = models.CharField(

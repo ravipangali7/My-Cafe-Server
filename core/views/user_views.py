@@ -240,6 +240,12 @@ def update_user(request):
                 user.is_active = is_active_value.lower() in ('true', '1', 'yes')
             else:
                 user.is_active = bool(is_active_value) if is_active_value is not None else True
+        if 'is_online' in data:
+            is_online_value = data.get('is_online')
+            if isinstance(is_online_value, str):
+                user.is_online = is_online_value.lower() in ('true', '1', 'yes')
+            else:
+                user.is_online = bool(is_online_value) if is_online_value is not None else True
         if 'country_code' in data:
             user.country_code = data.get('country_code')
         if 'ug_api' in data:

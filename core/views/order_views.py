@@ -153,6 +153,17 @@ def order_create(request):
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        # Vendor creating order from within the system: do not add service/transaction fee
+        is_vendor_created = (
+            request.user.is_authenticated and request.user == order_user
+        )
+        # Public/customer orders: block if restaurant is offline
+        if not is_vendor_created and not order_user.is_online:
+            return Response(
+                {'error': 'Restaurant is currently offline. Orders cannot be placed at this time.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         # Fetch transaction fee from settings
         settings = SuperSetting.objects.first()
         transaction_fee = settings.per_transaction_fee if settings else 10
@@ -160,10 +171,6 @@ def order_create(request):
         # Calculate order amount (without fee) and total (with fee)
         order_amount = Decimal(str(total))
         total_with_fee = order_amount + Decimal(str(transaction_fee))
-        # Vendor creating order from within the system: do not add service/transaction fee
-        is_vendor_created = (
-            request.user.is_authenticated and request.user == order_user
-        )
         order_total = order_amount if is_vendor_created else total_with_fee
         
         # Create order with total (including fee only for non-vendor-created orders)
