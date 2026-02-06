@@ -215,19 +215,23 @@ def generate_order_invoice(order):
         ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
     ]))
 
-    # Header right: vendor name, address, phone (no INVOICE title; no Due Date)
+    # Header: logo | vendor name + phone | location (or placeholder)
     vendor_block = Paragraph(
-        f"<b>{vendor_name}</b><br/>{vendor_address or '—'}<br/>{vendor_phone or '—'}",
+        f"<b>{vendor_name}</b><br/>{vendor_phone or '—'}",
         body_style,
     )
+    location_text = vendor_address.strip() if vendor_address else "—"
+    location_para = Paragraph(location_text, body_style)
     header_table = Table(
-        [[logo_table, vendor_block]],
-        colWidths=[1.6 * inch, 5.4 * inch],
+        [[logo_table, vendor_block, location_para]],
+        colWidths=[1.6 * inch, 3.2 * inch, 2.2 * inch],
     )
     header_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
         ('LEFTPADDING', (1, 0), (1, -1), 12),
+        ('RIGHTPADDING', (2, 0), (2, -1), 0),
     ]))
     elements.append(header_table)
     elements.append(Spacer(1, 0.2 * inch))
@@ -242,50 +246,36 @@ def generate_order_invoice(order):
     elements.append(thick_divider)
     elements.append(Spacer(1, 0.15 * inch))
 
-    # --- Invoice meta: Invoice No. (bold order.id), Invoice Date (no Due Date) ---
-    invoice_no_style = ParagraphStyle(
-        'InvoiceNoBold',
-        parent=styles['Normal'],
-        fontSize=11,
-        textColor=DARK_GRAY,
-        fontName='Helvetica-Bold',
-        leading=12,
-    )
-    meta_para = Paragraph(
-        f"<b>Invoice No.:</b> {order.id}<br/>"
-        f"<b>Invoice Date:</b> {invoice_date}",
-        body_style,
-    )
-    elements.append(meta_para)
-    elements.append(Spacer(1, 0.2 * inch))
-
-    # --- Customer information ---
-    customer_para = Paragraph(
-        f"<b>Customer:</b> {order.name or '—'}<br/><b>Customer number:</b> Order #{order.id}",
-        body_style,
-    )
-    elements.append(customer_para)
-    elements.append(Spacer(1, 0.2 * inch))
-
-    # --- BILL TO | SHIP TO ---
-    from_para = Paragraph(
-        f"<b>BILL TO</b><br/><br/><b>{vendor_name}</b><br/>{vendor_phone or '—'}<br/>{vendor_address or '—'}",
-        body_style,
-    )
-    to_para = Paragraph(
-        f"<b>SHIP TO</b><br/><br/><b>{order.name or '—'}</b><br/>{order.phone or '—'}<br/>{order.table_no or '—'}",
-        body_style,
-    )
-    from_to_table = Table(
-        [[from_para, to_para]],
+    # --- Invoice meta: Invoice No. left, Invoice Date right ---
+    meta_left = Paragraph(f"<b>Invoice No.:</b> {order.id}", body_style)
+    meta_right = Paragraph(f"<b>Invoice Date:</b> {invoice_date}", body_style)
+    meta_table = Table(
+        [[meta_left, meta_right]],
         colWidths=[3.5 * inch, 3.5 * inch],
     )
-    from_to_table.setStyle(TableStyle([
+    meta_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
         ('LEFTPADDING', (0, 0), (0, -1), 0),
         ('RIGHTPADDING', (1, 0), (1, -1), 0),
     ]))
-    elements.append(from_to_table)
+    elements.append(meta_table)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # --- Customer information: name left, phone right ---
+    customer_left = Paragraph(f"<b>Customer name:</b> {order.name or '—'}", body_style)
+    customer_right = Paragraph(f"<b>Customer phone:</b> {order.phone or '—'}", body_style)
+    customer_table = Table(
+        [[customer_left, customer_right]],
+        colWidths=[3.5 * inch, 3.5 * inch],
+    )
+    customer_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('LEFTPADDING', (0, 0), (0, -1), 0),
+        ('RIGHTPADDING', (1, 0), (1, -1), 0),
+    ]))
+    elements.append(customer_table)
     elements.append(Spacer(1, 0.2 * inch))
 
     # --- Divider (accent line) ---
@@ -468,7 +458,6 @@ def generate_invoice_pdf_from_payload(payload):
     total_val = payload.get('total')
     if total_val is None:
         total_val = float(order.get('total', 0))
-    customer_number = payload.get('customerNumber') or order.get('customer_number') or f"Order #{order.get('id', '')}"
     order_date_str = payload.get('orderDate')
     invoice_date_str = payload.get('invoiceDate')
     if not order_date_str and order.get('created_at'):
@@ -567,18 +556,23 @@ def generate_invoice_pdf_from_payload(payload):
         ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
     ]))
 
+    # Header: logo | vendor name + phone | location (or placeholder)
     vendor_block = Paragraph(
-        f"<b>{vendor_name}</b><br/>{vendor_address or '—'}<br/>{vendor_phone or '—'}",
+        f"<b>{vendor_name}</b><br/>{vendor_phone or '—'}",
         body_style,
     )
+    location_text = (vendor_address or "").strip() or "—"
+    location_para = Paragraph(location_text, body_style)
     header_table = Table(
-        [[logo_table, vendor_block]],
-        colWidths=[1.6 * inch, 5.4 * inch],
+        [[logo_table, vendor_block, location_para]],
+        colWidths=[1.6 * inch, 3.2 * inch, 2.2 * inch],
     )
     header_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
         ('LEFTPADDING', (1, 0), (1, -1), 12),
+        ('RIGHTPADDING', (2, 0), (2, -1), 0),
     ]))
     elements.append(header_table)
     elements.append(Spacer(1, 0.2 * inch))
@@ -593,42 +587,36 @@ def generate_invoice_pdf_from_payload(payload):
     elements.append(thick_divider)
     elements.append(Spacer(1, 0.15 * inch))
 
-    # --- Invoice meta: Invoice No. (bold order.id), Invoice Date (no Due Date) ---
-    meta_para = Paragraph(
-        f"<b>Invoice No.:</b> {order_id}<br/>"
-        f"<b>Invoice Date:</b> {invoice_date_str or '—'}",
-        body_style,
-    )
-    elements.append(meta_para)
-    elements.append(Spacer(1, 0.2 * inch))
-
-    # --- Customer information ---
-    customer_para = Paragraph(
-        f"<b>Customer name:</b> {customer_name}<br/><b>Customer number:</b> {customer_number}",
-        body_style,
-    )
-    elements.append(customer_para)
-    elements.append(Spacer(1, 0.2 * inch))
-
-    # --- BILL TO | SHIP TO ---
-    from_para = Paragraph(
-        f"<b>BILL TO</b><br/><br/><b>{vendor_name}</b><br/>{vendor_phone or '—'}<br/>{vendor_address or '—'}",
-        body_style,
-    )
-    to_para = Paragraph(
-        f"<b>SHIP TO</b><br/><br/><b>{customer_name}</b><br/>{customer_phone or '—'}",
-        body_style,
-    )
-    from_to_table = Table(
-        [[from_para, to_para]],
+    # --- Invoice meta: Invoice No. left, Invoice Date right ---
+    meta_left = Paragraph(f"<b>Invoice No.:</b> {order_id}", body_style)
+    meta_right = Paragraph(f"<b>Invoice Date:</b> {invoice_date_str or '—'}", body_style)
+    meta_table = Table(
+        [[meta_left, meta_right]],
         colWidths=[3.5 * inch, 3.5 * inch],
     )
-    from_to_table.setStyle(TableStyle([
+    meta_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
         ('LEFTPADDING', (0, 0), (0, -1), 0),
         ('RIGHTPADDING', (1, 0), (1, -1), 0),
     ]))
-    elements.append(from_to_table)
+    elements.append(meta_table)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # --- Customer information: name left, phone right ---
+    customer_left = Paragraph(f"<b>Customer name:</b> {customer_name}", body_style)
+    customer_right = Paragraph(f"<b>Customer phone:</b> {customer_phone or '—'}", body_style)
+    customer_table = Table(
+        [[customer_left, customer_right]],
+        colWidths=[3.5 * inch, 3.5 * inch],
+    )
+    customer_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('LEFTPADDING', (0, 0), (0, -1), 0),
+        ('RIGHTPADDING', (1, 0), (1, -1), 0),
+    ]))
+    elements.append(customer_table)
     elements.append(Spacer(1, 0.2 * inch))
 
     # --- Divider ---
