@@ -35,6 +35,21 @@ def _safe_hex_color(hex_str, fallback_rgb=(0.2, 0.2, 0.2)):
         return colors.Color(*fallback_rgb)
 
 
+def _format_discount(discount_type, discount_value):
+    """Format discount for display: percentage -> 'X%', flat -> '₹X.XX', else '—'."""
+    if not discount_type or discount_value is None:
+        return "—"
+    try:
+        val = float(discount_value)
+    except (TypeError, ValueError):
+        return "—"
+    if discount_type == 'percentage':
+        return f"{val:.0f}%" if val == int(val) else f"{val}%"
+    if discount_type == 'flat':
+        return f"₹{val:.2f}"
+    return "—"
+
+
 # Design colors (from reference image); defensive so invalid values do not crash PDF
 LIGHT_BEIGE = _safe_hex_color('#F8F7F2', (0.973, 0.969, 0.949))
 ACCENT = _safe_hex_color('#CC9999', (0.8, 0.6, 0.6))
@@ -153,7 +168,7 @@ def generate_order_invoice(order):
     except Invoice.DoesNotExist:
         invoice_number = f'INV-{order.id:03d}'
 
-    invoice_date = order.created_at.strftime('%B %d, %Y')
+    invoice_date = order.created_at.strftime('%d/%m/%Y')
     order_date_short = order.created_at.strftime('%m/%d/%Y')
 
     # Order-level transaction charge
@@ -200,26 +215,49 @@ def generate_order_invoice(order):
         ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
     ]))
 
-    title_right = Paragraph("INVOICE", title_style)
-    num_right = Paragraph(invoice_number, invoice_num_style_right)
-    header_right = Table([[title_right], [num_right]], colWidths=[2.5 * inch])
-    header_right.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('TOPPADDING', (0, 0), (-1, -1), 0),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 2),
-    ]))
+    # Header right: vendor name, address, phone (no INVOICE title; no Due Date)
+    vendor_block = Paragraph(
+        f"<b>{vendor_name}</b><br/>{vendor_address or '—'}<br/>{vendor_phone or '—'}",
+        body_style,
+    )
     header_table = Table(
-        [[logo_table, header_right]],
+        [[logo_table, vendor_block]],
         colWidths=[1.6 * inch, 5.4 * inch],
     )
     header_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('LEFTPADDING', (1, 0), (1, -1), 12),
     ]))
     elements.append(header_table)
-    elements.append(Spacer(1, 0.25 * inch))
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # --- Thick divider ---
+    thick_divider = Table([[""]], colWidths=[7 * inch], rowHeights=[6])
+    thick_divider.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), DARK_GRAY),
+        ('LINEABOVE', (0, 0), (-1, -1), 2, DARK_GRAY),
+        ('LINEBELOW', (0, 0), (-1, -1), 2, DARK_GRAY),
+    ]))
+    elements.append(thick_divider)
+    elements.append(Spacer(1, 0.15 * inch))
+
+    # --- Invoice meta: Invoice No. (bold order.id), Invoice Date (no Due Date) ---
+    invoice_no_style = ParagraphStyle(
+        'InvoiceNoBold',
+        parent=styles['Normal'],
+        fontSize=11,
+        textColor=DARK_GRAY,
+        fontName='Helvetica-Bold',
+        leading=12,
+    )
+    meta_para = Paragraph(
+        f"<b>Invoice No.:</b> {order.id}<br/>"
+        f"<b>Invoice Date:</b> {invoice_date}",
+        body_style,
+    )
+    elements.append(meta_para)
+    elements.append(Spacer(1, 0.2 * inch))
 
     # --- Customer information ---
     customer_para = Paragraph(
@@ -229,13 +267,13 @@ def generate_order_invoice(order):
     elements.append(customer_para)
     elements.append(Spacer(1, 0.2 * inch))
 
-    # --- INVOICE FROM | INVOICE TO ---
+    # --- BILL TO | SHIP TO ---
     from_para = Paragraph(
-        f"<b>INVOICE FROM</b><br/><br/><b>{vendor_name}</b><br/>{vendor_phone or '—'}<br/>{vendor_address or '—'}",
+        f"<b>BILL TO</b><br/><br/><b>{vendor_name}</b><br/>{vendor_phone or '—'}<br/>{vendor_address or '—'}",
         body_style,
     )
     to_para = Paragraph(
-        f"<b>INVOICE TO</b><br/><br/><b>{order.name or '—'}</b><br/>{order.phone or '—'}<br/>{order.table_no or '—'}",
+        f"<b>SHIP TO</b><br/><br/><b>{order.name or '—'}</b><br/>{order.phone or '—'}<br/>{order.table_no or '—'}",
         body_style,
     )
     from_to_table = Table(
@@ -260,10 +298,10 @@ def generate_order_invoice(order):
     elements.append(divider)
     elements.append(Spacer(1, 0.15 * inch))
 
-    # --- Items table: IMAGE, DESCRIPTION, QTY, PRICE, TOTAL ---
+    # --- Items table: IMAGE, ITEM NAME, QTY, PRICE, DISCOUNT, AMOUNT ---
     order_items = order.items.select_related('product', 'product_variant__unit').all()
     img_size = 0.55 * inch
-    table_data = [['IMAGE', 'DESCRIPTION', 'QTY', 'PRICE', 'TOTAL']]
+    table_data = [['IMAGE', 'ITEMS', 'QTY.', 'RATE', 'DISCOUNT', 'AMOUNT']]
     for item in order_items:
         product = item.product
         product_name = product.name if product else "Unknown Product"
@@ -282,17 +320,23 @@ def generate_order_invoice(order):
                 img_flowable = Image(img_buf, width=img_size, height=img_size)
             except Exception:
                 pass
+        pv = item.product_variant
+        discount_str = _format_discount(
+            getattr(pv, 'discount_type', None),
+            getattr(pv, 'discount_value', None),
+        )
         table_data.append([
             img_flowable,
             Paragraph(f"{product_name}{variant_info}", body_style),
             Paragraph(str(item.quantity), body_style),
-            Paragraph(f"{float(item.price):.2f}", body_style),
-            Paragraph(f"{float(item.total):.2f}", body_style),
+            Paragraph(f"₹{float(item.price):.2f}", body_style),
+            Paragraph(discount_str, body_style),
+            Paragraph(f"₹{float(item.total):.2f}", body_style),
         ])
 
     items_table = Table(
         table_data,
-        colWidths=[0.7 * inch, 3.2 * inch, 0.7 * inch, 1.0 * inch, 1.1 * inch],
+        colWidths=[0.7 * inch, 2.6 * inch, 0.5 * inch, 0.9 * inch, 0.9 * inch, 1.0 * inch],
     )
     items_table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -313,14 +357,14 @@ def generate_order_invoice(order):
     elements.append(items_table)
     elements.append(Spacer(1, 0.25 * inch))
 
-    # --- Summary: Subtotal, Service charge (fixed Rs), Total ---
+    # --- Summary: Subtotal, Service charge (fixed Rs), Total (₹) ---
     total_amount = float(order.total)
     subtotal_amount = sum(float(i.total) for i in order_items)
     service_charge_val = float(transaction_charge_val) if transaction_charge_val is not None else 0
     summary_data = [
-        [Paragraph("Subtotal", body_style), Paragraph(f"{subtotal_amount:.2f}", body_style)],
-        [Paragraph("Service charge", body_style), Paragraph(f"{service_charge_val:.2f}", body_style)],
-        [Paragraph("Total", body_bold_style), Paragraph(f"{total_amount:.2f}", body_bold_style)],
+        [Paragraph("Subtotal", body_style), Paragraph(f"₹{subtotal_amount:.2f}", body_style)],
+        [Paragraph("Service charge", body_style), Paragraph(f"₹{service_charge_val:.2f}", body_style)],
+        [Paragraph("Total", body_bold_style), Paragraph(f"₹{total_amount:.2f}", body_bold_style)],
     ]
     summary_table = Table(summary_data, colWidths=[1.4 * inch, 1.2 * inch])
     summary_table.setStyle(TableStyle([
@@ -426,12 +470,19 @@ def generate_invoice_pdf_from_payload(payload):
         total_val = float(order.get('total', 0))
     customer_number = payload.get('customerNumber') or order.get('customer_number') or f"Order #{order.get('id', '')}"
     order_date_str = payload.get('orderDate')
+    invoice_date_str = payload.get('invoiceDate')
     if not order_date_str and order.get('created_at'):
         try:
             dt = datetime.fromisoformat(order['created_at'].replace('Z', '+00:00'))
             order_date_str = dt.strftime('%m/%d/%Y')
         except Exception:
             order_date_str = str(order.get('created_at', ''))
+    if not invoice_date_str and order.get('created_at'):
+        try:
+            dt = datetime.fromisoformat(order['created_at'].replace('Z', '+00:00'))
+            invoice_date_str = dt.strftime('%d/%m/%Y')
+        except Exception:
+            invoice_date_str = order_date_str or '—'
 
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -480,14 +531,14 @@ def generate_invoice_pdf_from_payload(payload):
         fontName='Helvetica-Bold',
     )
 
-    invoice_number = invoice.get('invoice_number') or f"INV-{order.get('id', 0)}"
+    order_id = order.get('id', '')
     vendor_name = vendor.get('name') or 'Vendor'
     vendor_phone = vendor.get('phone') or ''
     vendor_address = vendor.get('address') or ''
     customer_name = order.get('customer_name') or 'Customer'
     customer_phone = order.get('customer_phone') or ''
 
-    # --- Header: logo top-left, INVOICE top-right ---
+    # --- Header: logo left, vendor name/address/phone right (no Due Date) ---
     logo_flowable = None
     logo_b64 = vendor.get('logo_base64')
     if logo_b64:
@@ -516,28 +567,42 @@ def generate_invoice_pdf_from_payload(payload):
         ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
     ]))
 
-    title_right = Paragraph("INVOICE", title_style)
-    num_right = Paragraph(invoice_number, invoice_num_style_right)
-    header_right = Table([[title_right], [num_right]], colWidths=[2.5 * inch])
-    header_right.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('TOPPADDING', (0, 0), (-1, -1), 0),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 2),
-    ]))
+    vendor_block = Paragraph(
+        f"<b>{vendor_name}</b><br/>{vendor_address or '—'}<br/>{vendor_phone or '—'}",
+        body_style,
+    )
     header_table = Table(
-        [[logo_table, header_right]],
+        [[logo_table, vendor_block]],
         colWidths=[1.6 * inch, 5.4 * inch],
     )
     header_table.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('LEFTPADDING', (1, 0), (1, -1), 12),
     ]))
     elements.append(header_table)
-    elements.append(Spacer(1, 0.25 * inch))
+    elements.append(Spacer(1, 0.2 * inch))
 
-    # --- Customer information (same labels as React) ---
+    # --- Thick divider ---
+    thick_divider = Table([[""]], colWidths=[7 * inch], rowHeights=[6])
+    thick_divider.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), DARK_GRAY),
+        ('LINEABOVE', (0, 0), (-1, -1), 2, DARK_GRAY),
+        ('LINEBELOW', (0, 0), (-1, -1), 2, DARK_GRAY),
+    ]))
+    elements.append(thick_divider)
+    elements.append(Spacer(1, 0.15 * inch))
+
+    # --- Invoice meta: Invoice No. (bold order.id), Invoice Date (no Due Date) ---
+    meta_para = Paragraph(
+        f"<b>Invoice No.:</b> {order_id}<br/>"
+        f"<b>Invoice Date:</b> {invoice_date_str or '—'}",
+        body_style,
+    )
+    elements.append(meta_para)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # --- Customer information ---
     customer_para = Paragraph(
         f"<b>Customer name:</b> {customer_name}<br/><b>Customer number:</b> {customer_number}",
         body_style,
@@ -545,13 +610,13 @@ def generate_invoice_pdf_from_payload(payload):
     elements.append(customer_para)
     elements.append(Spacer(1, 0.2 * inch))
 
-    # --- Invoice from | Invoice to (same labels as React) ---
+    # --- BILL TO | SHIP TO ---
     from_para = Paragraph(
-        f"<b>Invoice from</b><br/><br/><b>{vendor_name}</b><br/>{vendor_phone or '—'}<br/>{vendor_address or '—'}",
+        f"<b>BILL TO</b><br/><br/><b>{vendor_name}</b><br/>{vendor_phone or '—'}<br/>{vendor_address or '—'}",
         body_style,
     )
     to_para = Paragraph(
-        f"<b>Invoice to</b><br/><br/><b>{customer_name}</b><br/>{customer_phone or '—'}",
+        f"<b>SHIP TO</b><br/><br/><b>{customer_name}</b><br/>{customer_phone or '—'}",
         body_style,
     )
     from_to_table = Table(
@@ -576,9 +641,9 @@ def generate_invoice_pdf_from_payload(payload):
     elements.append(divider)
     elements.append(Spacer(1, 0.15 * inch))
 
-    # --- Items table: Image, Description, Qty, Price, Total (₹) ---
+    # --- Items table: Image, Item Name, Qty, Price, Discount, Amount (₹) ---
     img_size = 0.55 * inch
-    table_data = [['Image', 'Description', 'Qty', 'Price', 'Total']]
+    table_data = [['Image', 'ITEMS', 'QTY.', 'RATE', 'DISCOUNT', 'AMOUNT']]
     for item in items:
         product_name = item.get('product_name') or 'Unknown'
         variant = item.get('variant') or {}
@@ -595,17 +660,22 @@ def generate_invoice_pdf_from_payload(payload):
 
         price_val = float(item.get('price', 0))
         total_item = float(item.get('total', 0))
+        discount_str = _format_discount(
+            item.get('discount_type'),
+            item.get('discount_value'),
+        )
         table_data.append([
             img_flowable,
             Paragraph(desc_text, body_style),
             Paragraph(str(item.get('quantity', 0)), body_style),
             Paragraph(f"₹{price_val:.2f}", body_style),
+            Paragraph(discount_str, body_style),
             Paragraph(f"₹{total_item:.2f}", body_style),
         ])
 
     items_table = Table(
         table_data,
-        colWidths=[0.7 * inch, 3.2 * inch, 0.7 * inch, 1.0 * inch, 1.1 * inch],
+        colWidths=[0.7 * inch, 2.6 * inch, 0.5 * inch, 0.9 * inch, 0.9 * inch, 1.0 * inch],
     )
     items_table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),

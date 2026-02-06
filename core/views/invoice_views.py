@@ -342,6 +342,13 @@ def invoice_public_view(request, order_id, token):
                     'unit_name': item.product_variant.unit.name if item.product_variant.unit else None,
                     'unit_value': getattr(item.product_variant, 'unit_value', 1),
                 }
+                pv = item.product_variant
+                item_data['discount_type'] = getattr(pv, 'discount_type', None)
+                dv = getattr(pv, 'discount_value', None)
+                item_data['discount_value'] = str(dv) if dv is not None else None
+            else:
+                item_data['discount_type'] = None
+                item_data['discount_value'] = None
             items.append(item_data)
         
         # Build vendor info (always set logo_url: uploaded or generated fallback)
