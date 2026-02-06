@@ -228,9 +228,7 @@ def send_order_ready_whatsapp(order) -> bool:
 
         # Typical order-ready template body variables: e.g. {{1}} order id, {{2}} name, {{3}} table
         components = {
-            'body_1': {'type': 'text', 'value': str(order.id)},
-            'body_2': {'type': 'text', 'value': order.name or 'Customer'},
-            'body_3': {'type': 'text', 'value': order.table_no or 'N/A'},
+            'body_1': {'type': 'text', 'value': order.name},
         }
 
         payload = {
