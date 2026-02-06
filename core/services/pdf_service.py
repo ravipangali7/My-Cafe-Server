@@ -291,7 +291,7 @@ def generate_order_invoice(order):
     # --- Items table: IMAGE, ITEM NAME, QTY, PRICE, DISCOUNT, AMOUNT ---
     order_items = order.items.select_related('product', 'product_variant__unit').all()
     img_size = 0.55 * inch
-    table_data = [['', '', 'QTY.', 'RATE', 'DISCOUNT', 'AMOUNT']]
+    table_data = [['', 'ITEMS', 'QTY.', 'RATE', 'DISCOUNT', 'AMOUNT']]
     for item in order_items:
         product = item.product
         product_name = product.name if product else "Unknown Product"
@@ -599,7 +599,7 @@ def generate_invoice_pdf_from_payload(payload):
 
     # --- Items table: Image, Item Name, Qty, Price, Discount, Amount (₹) ---
     img_size = 0.55 * inch
-    table_data = [['', '', 'QTY.', 'RATE', 'DISCOUNT', 'AMOUNT']]
+    table_data = [['', 'ITEMS', 'QTY.', 'RATE', 'DISCOUNT', 'AMOUNT']]
     for item in items:
         product_name = item.get('product_name') or 'Unknown'
         variant = item.get('variant') or {}
