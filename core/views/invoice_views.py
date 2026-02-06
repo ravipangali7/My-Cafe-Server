@@ -12,6 +12,7 @@ from django.http import HttpResponse
 from django.core.files.base import ContentFile
 from django.conf import settings
 from django.db.models import Sum
+from django.urls import reverse
 from datetime import datetime
 from ..models import Order, Invoice
 from ..services.pdf_service import generate_order_invoice, generate_invoice_pdf_from_payload
@@ -343,14 +344,21 @@ def invoice_public_view(request, order_id, token):
                 }
             items.append(item_data)
         
-        # Build vendor info
+        # Build vendor info (always set logo_url: uploaded or generated fallback)
         vendor_info = None
         if order.user:
+            if order.user.logo:
+                try:
+                    logo_url = request.build_absolute_uri(order.user.logo.url)
+                except Exception:
+                    logo_url = request.build_absolute_uri(reverse('vendor_logo_image', args=[order.user.id]))
+            else:
+                logo_url = request.build_absolute_uri(reverse('vendor_logo_image', args=[order.user.id]))
             vendor_info = {
                 'name': order.user.name,
                 'phone': order.user.phone,
                 'address': order.user.address,
-                'logo_url': request.build_absolute_uri(order.user.logo.url) if order.user.logo else None,
+                'logo_url': logo_url,
             }
         
         # Build response data

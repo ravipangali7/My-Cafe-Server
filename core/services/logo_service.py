@@ -55,20 +55,14 @@ def generate_logo_image(vendor_name, size=(256, 256)):
     hex_color = bg_color.lstrip('#')
     bg_rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
-    img = Image.new('RGB', (width, height), color=bg_rgb)
+    img = Image.new('RGB', (width, height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
 
-    # Draw circle (optional: draw in center for rounded look - we use full image as "circle" by making it square)
-    # For a clear circle, we could draw an ellipse; here we keep full square for simplicity and clarity
-    # Draw rounded rectangle for softer look
+    # Draw circle with deterministic background and thin light gray border (match reference style)
     margin = max(2, width // 32)
-    draw.rounded_rectangle(
-        [margin, margin, width - margin, height - margin],
-        radius=width // 8,
-        outline=(255, 255, 255),
-        width=max(1, width // 128),
-        fill=bg_rgb
-    )
+    border_width = max(1, width // 64)
+    xy = [margin, margin, width - margin, height - margin]
+    draw.ellipse(xy, fill=bg_rgb, outline=(220, 220, 220), width=border_width)
 
     # Text: try to load a nice font, fallback to default
     font_size = int(min(width, height) * 0.4)

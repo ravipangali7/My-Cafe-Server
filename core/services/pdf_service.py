@@ -27,11 +27,19 @@ from ..models import Invoice
 from .logo_service import generate_logo_image
 
 
-# Design colors (from reference image)
-LIGHT_BEIGE = colors.HexColor('#F8F7F2')
-ACCENT = colors.HexColor('#CC9999')
-FOOTER_GREEN = colors.HexColor('#8C9C66')
-DARK_GRAY = colors.HexColor('#333333')
+def _safe_hex_color(hex_str, fallback_rgb=(0.2, 0.2, 0.2)):
+    """Return ReportLab color from hex, or fallback to avoid PDF generation crashes."""
+    try:
+        return colors.HexColor(hex_str)
+    except Exception:
+        return colors.Color(*fallback_rgb)
+
+
+# Design colors (from reference image); defensive so invalid values do not crash PDF
+LIGHT_BEIGE = _safe_hex_color('#F8F7F2', (0.973, 0.969, 0.949))
+ACCENT = _safe_hex_color('#CC9999', (0.8, 0.6, 0.6))
+FOOTER_GREEN = _safe_hex_color('#8C9C66', (0.55, 0.61, 0.4))
+DARK_GRAY = _safe_hex_color('#333333', (0.2, 0.2, 0.2))
 WHITE = colors.white
 
 

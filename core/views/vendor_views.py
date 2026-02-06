@@ -1,6 +1,7 @@
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 from django.contrib.auth import authenticate
 from django.db.models import Q
 from django.core.paginator import Paginator
@@ -341,23 +342,12 @@ def vendor_edit(request, id):
 
 
 @api_view(['GET'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def vendor_logo_image(request, id):
-    """Serve vendor logo image: uploaded file or auto-generated from name."""
-    if not request.user.is_authenticated:
-        return Response(
-            {'error': 'Not authenticated'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+    """Serve vendor logo image: uploaded file or auto-generated from name. Public for GET (menu/invoice)."""
     try:
-        if request.user.is_superuser:
-            vendor = User.objects.get(id=id)
-        else:
-            if int(id) != request.user.id:
-                return Response(
-                    {'error': 'You can only access your own logo'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            vendor = request.user
+        vendor = User.objects.get(id=id)
     except User.DoesNotExist:
         return Response(
             {'error': 'Vendor not found'},
