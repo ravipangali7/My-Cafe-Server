@@ -285,6 +285,8 @@ def vendor_edit(request, id):
             vendor.expire_date = expire_date if expire_date else None
         if 'token' in data:
             vendor.token = data.get('token')
+        if 'ug_api' in data:
+            vendor.ug_api = data.get('ug_api') or None
         if 'is_active' in data:
             is_active_value = data.get('is_active')
             # Convert string "true"/"false" to boolean

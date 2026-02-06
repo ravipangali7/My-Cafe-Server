@@ -242,6 +242,8 @@ def update_user(request):
                 user.is_active = bool(is_active_value) if is_active_value is not None else True
         if 'country_code' in data:
             user.country_code = data.get('country_code')
+        if 'ug_api' in data:
+            user.ug_api = data.get('ug_api') or None
         
         # Handle logo file upload: multipart file or URL from WebView upload
         if 'logo' in request.FILES:
@@ -266,6 +268,53 @@ def update_user(request):
             'message': 'Profile updated successfully'
         }, status=status.HTTP_200_OK)
         
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['POST'])
+def change_password(request):
+    """Change password for authenticated user (current password required)."""
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Not authenticated'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    try:
+        if request.content_type and 'application/json' in request.content_type:
+            data = json.loads(request.body)
+        else:
+            data = request.POST
+        current_password = data.get('current_password')
+        new_password = data.get('new_password')
+        if not current_password:
+            return Response(
+                {'error': 'Current password is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not new_password:
+            return Response(
+                {'error': 'New password is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if len(new_password) < 6:
+            return Response(
+                {'error': 'New password must be at least 6 characters'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not request.user.check_password(current_password):
+            return Response(
+                {'error': 'Current password is incorrect'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        request.user.set_password(new_password)
+        request.user.save(update_fields=['password'])
+        return Response({
+            'message': 'Password changed successfully. You can now log in with your new password.'
+        }, status=status.HTTP_200_OK)
     except Exception as e:
         return Response(
             {'error': str(e)},

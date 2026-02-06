@@ -22,7 +22,7 @@ from django.conf.urls.static import static
 from core.views import (
     # Auth views
     login, register, logout, get_user, update_user, get_fcm_tokens, save_fcm_token, save_fcm_token_by_phone,
-    forgot_password, verify_otp, reset_password,
+    forgot_password, verify_otp, reset_password, change_password,
     # Dashboard
     dashboard_stats, vendor_dashboard_data, super_admin_dashboard_data,
     # Vendor views
@@ -83,6 +83,7 @@ urlpatterns = [
     path('api/auth/forgot-password/', forgot_password, name='forgot_password'),
     path('api/auth/verify-otp/', verify_otp, name='verify_otp'),
     path('api/auth/reset-password/', reset_password, name='reset_password'),
+    path('api/auth/change-password/', change_password, name='change_password'),
     
     # Dashboard endpoints
     path('api/dashboard/stats', dashboard_stats, name='dashboard_stats'),  # No trailing slash to avoid redirect
