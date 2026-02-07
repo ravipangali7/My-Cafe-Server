@@ -502,6 +502,11 @@ def vendor_dashboard_data(request):
         # Orders and transactions in the selected date range (or all if date_filter='all')
         orders_base = Order.objects.filter(user=user)
         transactions_base = TransactionHistory.objects.filter(user=user)
+        # Hide whole UG payment rows from vendor
+        if not request.user.is_superuser:
+            transactions_base = transactions_base.exclude(
+                Q(remarks__icontains='ug payment') | Q(ug_client_txn_id__isnull=False)
+            )
         if start_dt is not None:
             orders_in_range = orders_base.filter(created_at__gte=start_dt, created_at__lte=end_dt)
             transactions_in_range = transactions_base.filter(created_at__gte=start_dt, created_at__lte=end_dt)

@@ -44,6 +44,10 @@ def transaction_list(request):
         else:
             # Non-superusers only see their own transactions AND exclude system transactions
             queryset = Transaction.objects.filter(user=request.user, is_system=False)
+            # Hide whole UG payment rows from vendor
+            queryset = queryset.exclude(
+                Q(remarks__icontains='ug payment') | Q(ug_client_txn_id__isnull=False)
+            )
         
         # Apply filters
         if status_filter:
@@ -124,6 +128,12 @@ def transaction_detail(request, id):
             transaction = Transaction.objects.select_related('order', 'qr_stand_order').get(
                 id=id, user=request.user, is_system=False
             )
+            # Hide UG payment transactions from vendor (return 404)
+            if (transaction.remarks and 'ug payment' in (transaction.remarks or '').lower()) or transaction.ug_client_txn_id:
+                return Response(
+                    {'error': 'Transaction not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
         serializer = TransactionSerializer(transaction, context={'request': request})
         return Response({'transaction': serializer.data}, status=status.HTTP_200_OK)
     except Transaction.DoesNotExist:

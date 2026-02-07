@@ -170,7 +170,13 @@ def subscription_transactions(request):
         ).filter(
             Q(transaction_category='subscription_fee') |
             (Q(order__isnull=True) & (Q(remarks__icontains='Subscription') | Q(remarks__icontains='subscription')))
-        ).order_by('-created_at')
+        )
+        # Hide whole UG payment rows from vendor
+        if not request.user.is_superuser:
+            transactions = transactions.exclude(
+                Q(remarks__icontains='ug payment') | Q(ug_client_txn_id__isnull=False)
+            )
+        transactions = transactions.order_by('-created_at')
         
         serializer = TransactionHistorySerializer(transactions, many=True, context={'request': request})
         
@@ -206,7 +212,13 @@ def subscription_history(request):
         ).filter(
             Q(transaction_category='subscription_fee') |
             (Q(order__isnull=True) & (Q(remarks__icontains='Subscription') | Q(remarks__icontains='subscription')))
-        ).order_by('created_at')
+        )
+        # Hide whole UG payment rows from vendor
+        if not request.user.is_superuser:
+            transactions = transactions.exclude(
+                Q(remarks__icontains='ug payment') | Q(ug_client_txn_id__isnull=False)
+            )
+        transactions = transactions.order_by('created_at')
         
         # Build history timeline
         history = []

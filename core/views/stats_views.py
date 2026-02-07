@@ -217,6 +217,10 @@ def transaction_stats(request):
         else:
             # Non-superusers only see their own transactions AND exclude system transactions
             queryset = TransactionHistory.objects.filter(user=request.user, is_system=False)
+            # Hide whole UG payment rows from vendor
+            queryset = queryset.exclude(
+                Q(remarks__icontains='ug payment') | Q(ug_client_txn_id__isnull=False)
+            )
         
         # Apply date filters (start 00:01, end 23:59:59; align with list when frontend passes them)
         date_range = parse_date_range(start_date, end_date)

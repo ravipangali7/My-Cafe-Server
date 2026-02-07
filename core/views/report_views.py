@@ -419,6 +419,11 @@ def finance_report(request):
             created_at__date__gte=start_date,
             created_at__date__lte=end_date
         )
+        # Hide whole UG payment rows from vendor
+        if not request.user.is_superuser:
+            transactions_queryset = transactions_queryset.exclude(
+                Q(remarks__icontains='ug payment') | Q(ug_client_txn_id__isnull=False)
+            )
         
         # Order revenue
         total_order_revenue = orders_queryset.aggregate(
@@ -472,11 +477,6 @@ def finance_report(request):
             'id', 'order_id', 'amount', 'status', 'remarks', 'utr', 'vpa', 
             'payer_name', 'created_at'
         ))
-        # Mask UG Payment remarks for vendor users
-        if not request.user.is_superuser:
-            for item in detailed_transactions:
-                if item.get('remarks') and 'ug payment' in (item.get('remarks') or '').lower():
-                    item['remarks'] = None
         
         return Response({
             'summary': {
