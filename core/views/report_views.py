@@ -468,10 +468,15 @@ def finance_report(request):
             current_date += timedelta(days=1)
         
         # Detailed transactions
-        detailed_transactions = transactions_queryset.order_by('-created_at').values(
+        detailed_transactions = list(transactions_queryset.order_by('-created_at').values(
             'id', 'order_id', 'amount', 'status', 'remarks', 'utr', 'vpa', 
             'payer_name', 'created_at'
-        )
+        ))
+        # Mask UG Payment remarks for vendor users
+        if not request.user.is_superuser:
+            for item in detailed_transactions:
+                if item.get('remarks') and 'ug payment' in (item.get('remarks') or '').lower():
+                    item['remarks'] = None
         
         return Response({
             'summary': {
@@ -485,7 +490,7 @@ def finance_report(request):
             },
             'transactions_by_status': list(transactions_by_status),
             'daily_breakdown': daily_breakdown,
-            'detailed_transactions': list(detailed_transactions)
+            'detailed_transactions': detailed_transactions
         }, status=status.HTTP_200_OK)
         
     except Exception as e:

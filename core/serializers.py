@@ -242,12 +242,26 @@ class TransactionSerializer(serializers.ModelSerializer):
         model = Transaction
         fields = [
             'id', 'order', 'order_id', 'qr_stand_order', 'qr_stand_order_id',
-            'user', 'user_info', 'amount', 'status', 'remarks', 
+            'user', 'user_info', 'amount', 'status', 'remarks',
             'utr', 'vpa', 'payer_name', 'bank_id',
             'transaction_type', 'transaction_category', 'is_system',
+            'ug_order_id', 'ug_client_txn_id', 'ug_payment_url', 'ug_txn_date', 'ug_status', 'ug_remark',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        request = self.context.get('request')
+        if request and not request.user.is_superuser:
+            # Mask remarks that identify UG Payment for vendor users
+            remarks = (obj.remarks or '') if hasattr(obj, 'remarks') else (data.get('remarks') or '')
+            if 'ug payment' in (remarks or '').lower():
+                data['remarks'] = None
+            # Hide UG Payment Gateway fields from vendor users
+            for key in ('ug_order_id', 'ug_client_txn_id', 'ug_payment_url', 'ug_txn_date', 'ug_status', 'ug_remark'):
+                data[key] = None
+        return data
     
     def get_user_info(self, obj):
         request = self.context.get('request')
