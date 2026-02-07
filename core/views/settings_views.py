@@ -9,6 +9,60 @@ from ..models import Product, Order, Category, Transaction, TransactionHistory, 
 from ..serializers import SuperSettingSerializer, UserSerializer, TransactionHistorySerializer, QRStandOrderSerializer, OrderSerializer, ShareholderWithdrawalSerializer
 from ..utils.subscription_helpers import get_effective_subscription_end_date, get_subscription_state
 
+# Allowed dashboard date filter values; invalid values fall back to 'today'
+DASHBOARD_DATE_FILTER_VALUES = {'today', 'yesterday', 'weekly', 'monthly', 'yearly', 'all'}
+
+
+def get_dashboard_date_range(date_filter):
+    """
+    Given date_filter ('today'|'yesterday'|'weekly'|'monthly'|'yearly'|'all')
+    and server timezone, return (start_dt, end_dt) as timezone-aware datetimes,
+    or (None, None) for 'all'. Invalid date_filter defaults to 'today'.
+    """
+    if date_filter not in DASHBOARD_DATE_FILTER_VALUES:
+        date_filter = 'today'
+    if date_filter == 'all':
+        return None, None
+
+    now = timezone.now()
+    today = now.date()
+
+    if date_filter == 'today':
+        start_dt = timezone.make_aware(datetime.combine(today, datetime.min.time()))
+        end_dt = start_dt + timedelta(days=1) - timedelta(microseconds=1)
+        return start_dt, end_dt
+
+    if date_filter == 'yesterday':
+        yesterday = today - timedelta(days=1)
+        start_dt = timezone.make_aware(datetime.combine(yesterday, datetime.min.time()))
+        end_dt = start_dt + timedelta(days=1) - timedelta(microseconds=1)
+        return start_dt, end_dt
+
+    if date_filter == 'weekly':
+        # Last 7 days including today
+        start_date = today - timedelta(days=6)
+        start_dt = timezone.make_aware(datetime.combine(start_date, datetime.min.time()))
+        end_dt = timezone.make_aware(datetime.combine(today, datetime.min.time())) + timedelta(days=1) - timedelta(microseconds=1)
+        return start_dt, end_dt
+
+    if date_filter == 'monthly':
+        # Current calendar month
+        start_dt = timezone.make_aware(datetime.combine(today.replace(day=1), datetime.min.time()))
+        if today.month == 12:
+            end_date = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+        else:
+            end_date = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+        end_dt = timezone.make_aware(datetime.combine(end_date, datetime.max.time()))
+        return start_dt, end_dt
+
+    if date_filter == 'yearly':
+        # Current calendar year
+        start_dt = timezone.make_aware(datetime.combine(today.replace(month=1, day=1), datetime.min.time()))
+        end_dt = timezone.make_aware(datetime.combine(today.replace(month=12, day=31), datetime.max.time()))
+        return start_dt, end_dt
+
+    return None, None
+
 
 @api_view(['GET'])
 def dashboard_stats(request):
@@ -440,8 +494,21 @@ def vendor_dashboard_data(request):
     try:
         user = request.user
         today = date.today()
+        date_filter = request.GET.get('date_filter', 'today')
+        start_dt, end_dt = get_dashboard_date_range(date_filter)
+
         effective_end = get_effective_subscription_end_date(user)
-        
+
+        # Orders and transactions in the selected date range (or all if date_filter='all')
+        orders_base = Order.objects.filter(user=user)
+        transactions_base = TransactionHistory.objects.filter(user=user)
+        if start_dt is not None:
+            orders_in_range = orders_base.filter(created_at__gte=start_dt, created_at__lte=end_dt)
+            transactions_in_range = transactions_base.filter(created_at__gte=start_dt, created_at__lte=end_dt)
+        else:
+            orders_in_range = orders_base
+            transactions_in_range = transactions_base
+
         # Get subscription details
         subscription_type = None
         amount_paid = Decimal('0')
@@ -467,23 +534,20 @@ def vendor_dashboard_data(request):
         if subscription_status == 'inactive_with_date':
             subscription_status = 'inactive'
         
-        # Get transaction history (all transactions for the user)
-        transactions = TransactionHistory.objects.filter(user=user).order_by('-created_at')[:50]
+        # Get transaction history in date range (for list and breakdown)
+        transactions = transactions_in_range.order_by('-created_at')[:50]
         transaction_serializer = TransactionHistorySerializer(transactions, many=True, context={'request': request})
-        
-        # Get pending orders count
+
+        # Get pending orders count (current state, not filtered by date)
         pending_orders_count = Order.objects.filter(user=user, status='pending').count()
-        
-        # Get pending QR stand orders count
+
+        # Get pending QR stand orders count (current state, not filtered by date)
         pending_qr_orders_count = QRStandOrder.objects.filter(vendor=user, order_status='pending').count()
-        
-        # Payment status breakdown for charts
-        all_transactions = TransactionHistory.objects.filter(user=user)
-        paid_count = all_transactions.filter(status='success').count()
-        pending_count = all_transactions.filter(status='pending').count()
-        failed_count = all_transactions.filter(status='failed').count()
-        
-        total_transactions = all_transactions.count()
+
+        # Payment status breakdown for charts (in date range)
+        paid_count = transactions_in_range.filter(status='success').count()
+        pending_count = transactions_in_range.filter(status='pending').count()
+        failed_count = transactions_in_range.filter(status='failed').count()
         payment_status_breakdown = {
             'paid': paid_count,
             'pending': pending_count,
@@ -515,54 +579,29 @@ def vendor_dashboard_data(request):
                     'status': transaction.status
                 })
         
-        # Calculate total orders
-        total_orders = Order.objects.filter(user=user).count()
-        
-        # Calculate total sales (sum of all order totals)
-        total_sales_result = Order.objects.filter(user=user).aggregate(total=Sum('total'))
+        # Calculate total orders (in date range)
+        total_orders = orders_in_range.count()
+
+        # Calculate total sales (sum of order totals in date range)
+        total_sales_result = orders_in_range.aggregate(total=Sum('total'))
         total_sales = total_sales_result['total'] or Decimal('0')
-        
-        # Calculate total revenue (sum of successful transactions)
-        total_revenue_result = TransactionHistory.objects.filter(
-            user=user,
-            status='success'
-        ).aggregate(total=Sum('amount'))
+
+        # Calculate total revenue (successful transactions in date range)
+        total_revenue_result = transactions_in_range.filter(status='success').aggregate(total=Sum('amount'))
         total_revenue = total_revenue_result['total'] or Decimal('0')
-        
-        # Finance summary (today/week/month)
-        now = timezone.now()
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        week_start = today_start - timedelta(days=7)
-        month_start = today_start - timedelta(days=30)
-        
-        today_revenue = TransactionHistory.objects.filter(
-            user=user,
-            status='success',
-            created_at__gte=today_start
-        ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-        
-        week_revenue = TransactionHistory.objects.filter(
-            user=user,
-            status='success',
-            created_at__gte=week_start
-        ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-        
-        month_revenue = TransactionHistory.objects.filter(
-            user=user,
-            status='success',
-            created_at__gte=month_start
-        ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-        
+
+        # Finance summary: in-range total (legacy keys kept for compatibility)
+        range_revenue = transactions_in_range.filter(status='success').aggregate(total=Sum('amount'))['total'] or Decimal('0')
         finance_summary = {
-            'today': str(today_revenue),
-            'week': str(week_revenue),
-            'month': str(month_revenue)
+            'today': str(range_revenue),
+            'week': str(range_revenue),
+            'month': str(range_revenue)
         }
         
-        # Best selling products (top 10 by quantity sold)
+        # Best selling products (top 10 by quantity sold, in date range)
+        orders_in_range_completed = orders_in_range.filter(status__in=['accepted', 'completed'])
         best_selling_products = OrderItem.objects.filter(
-            order__user=user,
-            order__status__in=['accepted', 'completed']
+            order__in=orders_in_range_completed
         ).values(
             'product__id',
             'product__name',
@@ -582,67 +621,90 @@ def vendor_dashboard_data(request):
                 'total_revenue': str(item['total_revenue'] or Decimal('0'))
             })
         
-        # Order trends (daily for last 30 days, monthly for last 12 months)
+        # Order trends within date range (daily, weekly, monthly series)
         order_trends_daily = []
-        for i in range(30):
-            day = today - timedelta(days=29-i)
-            day_start = timezone.make_aware(datetime.combine(day, datetime.min.time()))
-            day_end = day_start + timedelta(days=1)
-            
-            day_orders = Order.objects.filter(
-                user=user,
-                created_at__gte=day_start,
-                created_at__lt=day_end
-            ).count()
-            
-            day_revenue = TransactionHistory.objects.filter(
-                user=user,
-                status='success',
-                created_at__gte=day_start,
-                created_at__lt=day_end
-            ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-            
-            order_trends_daily.append({
-                'date': day.isoformat(),
-                'orders': day_orders,
-                'revenue': str(day_revenue)
-            })
-        
+        order_trends_weekly = []
         order_trends_monthly = []
-        for i in range(12):
-            month_date = today.replace(day=1) - timedelta(days=30 * (11-i))
-            month_start_dt = timezone.make_aware(datetime.combine(month_date.replace(day=1), datetime.min.time()))
-            if month_date.month == 12:
-                month_end_dt = timezone.make_aware(datetime.combine(month_date.replace(year=month_date.year+1, month=1, day=1), datetime.min.time()))
+
+        if start_dt is not None:
+            start_date = start_dt.date()
+            end_date = end_dt.date()
+            # Daily: one point per day in range
+            current = start_date
+            while current <= end_date:
+                day_start = timezone.make_aware(datetime.combine(current, datetime.min.time()))
+                day_end = day_start + timedelta(days=1)
+                day_orders = orders_in_range.filter(created_at__gte=day_start, created_at__lt=day_end).count()
+                day_revenue = transactions_in_range.filter(status='success', created_at__gte=day_start, created_at__lt=day_end).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                order_trends_daily.append({'date': current.isoformat(), 'orders': day_orders, 'revenue': str(day_revenue)})
+                current += timedelta(days=1)
+            # Weekly: one point per week (use same days as daily for "weekly" bucket when range <= 7 days)
+            if len(order_trends_daily) <= 7:
+                order_trends_weekly = list(order_trends_daily)
             else:
-                month_end_dt = timezone.make_aware(datetime.combine(month_date.replace(month=month_date.month+1, day=1), datetime.min.time()))
-            
-            month_orders = Order.objects.filter(
-                user=user,
-                created_at__gte=month_start_dt,
-                created_at__lt=month_end_dt
-            ).count()
-            
-            month_revenue = TransactionHistory.objects.filter(
-                user=user,
-                status='success',
-                created_at__gte=month_start_dt,
-                created_at__lt=month_end_dt
-            ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-            
-            order_trends_monthly.append({
-                'date': month_date.strftime('%Y-%m'),
-                'orders': month_orders,
-                'revenue': str(month_revenue)
-            })
-        
+                # Aggregate by week (Sunday start)
+                week_start = start_date
+                while week_start <= end_date:
+                    week_end = week_start + timedelta(days=7)
+                    ws = timezone.make_aware(datetime.combine(week_start, datetime.min.time()))
+                    we = timezone.make_aware(datetime.combine(min(week_end, end_date + timedelta(days=1)), datetime.min.time()))
+                    wo = orders_in_range.filter(created_at__gte=ws, created_at__lt=we).count()
+                    wr = transactions_in_range.filter(status='success', created_at__gte=ws, created_at__lt=we).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                    order_trends_weekly.append({'date': week_start.isoformat(), 'orders': wo, 'revenue': str(wr)})
+                    week_start = week_end
+            # Monthly: one point per month in range
+            month_date = start_date.replace(day=1)
+            while month_date <= end_date:
+                month_start_dt = timezone.make_aware(datetime.combine(month_date, datetime.min.time()))
+                if month_date.month == 12:
+                    next_month = month_date.replace(year=month_date.year + 1, month=1, day=1)
+                else:
+                    next_month = month_date.replace(month=month_date.month + 1, day=1)
+                month_end_dt = timezone.make_aware(datetime.combine(next_month, datetime.min.time())) - timedelta(microseconds=1)
+                mo = orders_in_range.filter(created_at__gte=month_start_dt, created_at__lte=month_end_dt).count()
+                mr = transactions_in_range.filter(status='success', created_at__gte=month_start_dt, created_at__lte=month_end_dt).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                order_trends_monthly.append({'date': month_date.strftime('%Y-%m'), 'orders': mo, 'revenue': str(mr)})
+                month_date = next_month
+        else:
+            # All time: last 30 days daily, last 12 weeks weekly, last 12 months monthly
+            for i in range(30):
+                day = today - timedelta(days=29 - i)
+                day_start = timezone.make_aware(datetime.combine(day, datetime.min.time()))
+                day_end = day_start + timedelta(days=1)
+                day_orders = orders_base.filter(created_at__gte=day_start, created_at__lt=day_end).count()
+                day_revenue = transactions_base.filter(status='success', created_at__gte=day_start, created_at__lt=day_end).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                order_trends_daily.append({'date': day.isoformat(), 'orders': day_orders, 'revenue': str(day_revenue)})
+            for i in range(12):
+                week_start = today - timedelta(days=7 * (11 - i))
+                week_end = week_start + timedelta(days=7)
+                ws = timezone.make_aware(datetime.combine(week_start, datetime.min.time()))
+                we = timezone.make_aware(datetime.combine(week_end, datetime.min.time()))
+                wo = orders_base.filter(created_at__gte=ws, created_at__lt=we).count()
+                wr = transactions_base.filter(status='success', created_at__gte=ws, created_at__lt=we).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                order_trends_weekly.append({'date': week_start.isoformat(), 'orders': wo, 'revenue': str(wr)})
+            for i in range(12):
+                # Go back (11-i) months from current month
+                m = today.month - 1 - (11 - i)
+                year = today.year + m // 12
+                month = (m % 12) + 1
+                month_date = date(year, month, 1)
+                month_start_dt = timezone.make_aware(datetime.combine(month_date, datetime.min.time()))
+                if month == 12:
+                    month_end_dt = timezone.make_aware(datetime.combine(date(year + 1, 1, 1), datetime.min.time())) - timedelta(microseconds=1)
+                else:
+                    month_end_dt = timezone.make_aware(datetime.combine(date(year, month + 1, 1), datetime.min.time())) - timedelta(microseconds=1)
+                mo = orders_base.filter(created_at__gte=month_start_dt, created_at__lte=month_end_dt).count()
+                mr = transactions_base.filter(status='success', created_at__gte=month_start_dt, created_at__lte=month_end_dt).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                order_trends_monthly.append({'date': month_date.strftime('%Y-%m'), 'orders': mo, 'revenue': str(mr)})
+
         order_trends = {
             'daily': order_trends_daily,
+            'weekly': order_trends_weekly,
             'monthly': order_trends_monthly
         }
         
-        # Recent orders (last 20)
-        recent_orders = Order.objects.filter(user=user).order_by('-created_at')[:20]
+        # Recent orders (last 20, in date range)
+        recent_orders = orders_in_range.order_by('-created_at')[:20]
         recent_orders_serializer = OrderSerializer(recent_orders, many=True, context={'request': request})
 
         # Pending orders (list for dashboard sections)
@@ -657,10 +719,9 @@ def vendor_dashboard_data(request):
         total_products = Product.objects.filter(user=user).count()
         total_qr_stand_orders = QRStandOrder.objects.filter(vendor=user).count()
 
-        # Top revenue products (top 10 by total revenue)
+        # Top revenue products (top 10 by total revenue, in date range)
         top_revenue_products_qs = OrderItem.objects.filter(
-            order__user=user,
-            order__status__in=['accepted', 'completed']
+            order__in=orders_in_range_completed
         ).values(
             'product__id',
             'product__name',
@@ -679,10 +740,9 @@ def vendor_dashboard_data(request):
                 'total_revenue': str(item['total_revenue'] or Decimal('0'))
             })
 
-        # Repeat customers (order_count >= 2, all time for vendor)
-        orders_qs = Order.objects.filter(user=user)
+        # Repeat customers (order_count >= 2 in date range)
         customer_agg = (
-            orders_qs.values('name', 'phone', 'country_code')
+            orders_in_range.values('name', 'phone', 'country_code')
             .annotate(
                 order_count=Count('id'),
                 total_spend=Sum('total'),
@@ -752,87 +812,108 @@ def super_admin_dashboard_data(request):
         )
     
     try:
-        # User statistics
+        today = date.today()
+        date_filter = request.GET.get('date_filter', 'today')
+        start_dt, end_dt = get_dashboard_date_range(date_filter)
+
+        if start_dt is not None:
+            transactions_in_range = TransactionHistory.objects.filter(
+                created_at__gte=start_dt, created_at__lte=end_dt
+            )
+        else:
+            transactions_in_range = TransactionHistory.objects.all()
+
+        # User statistics (current state, not filtered by date)
         total_users = User.objects.count()
         active_users = User.objects.filter(is_active=True).count()
         deactivated_users = User.objects.filter(is_active=False).count()
-        
-        # Total revenue (system-wide)
-        total_revenue = TransactionHistory.objects.filter(status='success').aggregate(
+
+        # Total revenue (system-wide, in date range)
+        total_revenue = transactions_in_range.filter(status='success').aggregate(
             total=Sum('amount')
         )['total'] or Decimal('0')
-        
-        # Revenue trends (last 30 days)
+
+        # Revenue trends: days in range, or last 30 days for "all"
         revenue_trends = []
-        today = date.today()
-        for i in range(30):
-            day = today - timedelta(days=29-i)
-            day_revenue = TransactionHistory.objects.filter(
-                status='success',
-                created_at__date=day
-            ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-            
-            revenue_trends.append({
-                'date': day.isoformat(),
-                'revenue': str(day_revenue)
-            })
-        
-        # Recent transactions (last 50)
-        recent_transactions = TransactionHistory.objects.all().order_by('-created_at')[:50]
+        if start_dt is not None:
+            start_date = start_dt.date()
+            end_date = end_dt.date()
+            current = start_date
+            while current <= end_date:
+                day_revenue = transactions_in_range.filter(
+                    status='success',
+                    created_at__date=current
+                ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                revenue_trends.append({'date': current.isoformat(), 'revenue': str(day_revenue)})
+                current += timedelta(days=1)
+        else:
+            for i in range(30):
+                day = today - timedelta(days=29 - i)
+                day_revenue = transactions_in_range.filter(
+                    status='success',
+                    created_at__date=day
+                ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                revenue_trends.append({'date': day.isoformat(), 'revenue': str(day_revenue)})
+
+        # Recent transactions (last 50, in date range)
+        recent_transactions = transactions_in_range.order_by('-created_at')[:50]
         transaction_serializer = TransactionHistorySerializer(recent_transactions, many=True, context={'request': request})
-        
-        # Pending QR stand orders
+
+        # Pending QR stand orders (current state, not filtered by date)
         pending_qr_orders = QRStandOrder.objects.filter(order_status='pending').order_by('-created_at')[:20]
         qr_order_serializer = QRStandOrderSerializer(pending_qr_orders, many=True, context={'request': request})
-        
-        # Pending KYC requests count
+
+        # Pending KYC requests count (current state)
         pending_kyc_count = User.objects.filter(kyc_status=User.KYC_PENDING).count()
-        
-        # Total transactions count
-        total_transactions = TransactionHistory.objects.count()
-        
-        # QR earnings (from QR stand order transactions)
-        qr_earnings = TransactionHistory.objects.filter(
+
+        # Total transactions count (in date range)
+        total_transactions = transactions_in_range.count()
+
+        # QR earnings (in date range)
+        qr_earnings = transactions_in_range.filter(
             status='success',
             order__isnull=False
         ).filter(
             Q(remarks__icontains='QR') | Q(remarks__icontains='qr')
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-        
-        # Subscription earnings (from subscription transactions)
-        subscription_earnings = TransactionHistory.objects.filter(
+
+        # Subscription earnings (in date range)
+        subscription_earnings = transactions_in_range.filter(
             status='success',
             order__isnull=True
         ).filter(
             Q(remarks__icontains='Subscription') | Q(remarks__icontains='subscription')
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-        
-        # Pending QR stand orders count
+
+        # Pending QR stand orders count (current state)
         pending_qr_orders_count = QRStandOrder.objects.filter(order_status='pending').count()
-        
-        # Transactions trend (last 30 days)
+
+        # Transactions trend (days in range or last 30 for "all")
         transactions_trend = []
-        for i in range(30):
-            day = today - timedelta(days=29-i)
-            day_transactions = TransactionHistory.objects.filter(
-                created_at__date=day
-            ).count()
-            
-            transactions_trend.append({
-                'date': day.isoformat(),
-                'count': day_transactions
-            })
-        
-        # Users overview (list of users with key stats)
+        if start_dt is not None:
+            start_date = start_dt.date()
+            end_date = end_dt.date()
+            current = start_date
+            while current <= end_date:
+                cnt = transactions_in_range.filter(created_at__date=current).count()
+                transactions_trend.append({'date': current.isoformat(), 'count': cnt})
+                current += timedelta(days=1)
+        else:
+            for i in range(30):
+                day = today - timedelta(days=29 - i)
+                cnt = transactions_in_range.filter(created_at__date=day).count()
+                transactions_trend.append({'date': day.isoformat(), 'count': cnt})
+
+        # Users overview (orders/revenue in date range)
         users_overview = []
-        all_users = User.objects.all()[:50]  # Limit to 50 for performance
+        all_users = User.objects.all()[:50]
         for user_obj in all_users:
-            user_orders = Order.objects.filter(user=user_obj).count()
-            user_revenue = TransactionHistory.objects.filter(
-                user=user_obj,
-                status='success'
-            ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-            
+            if start_dt is not None:
+                user_orders = Order.objects.filter(user=user_obj, created_at__gte=start_dt, created_at__lte=end_dt).count()
+                user_revenue = transactions_in_range.filter(user=user_obj, status='success').aggregate(total=Sum('amount'))['total'] or Decimal('0')
+            else:
+                user_orders = Order.objects.filter(user=user_obj).count()
+                user_revenue = TransactionHistory.objects.filter(user=user_obj, status='success').aggregate(total=Sum('amount'))['total'] or Decimal('0')
             users_overview.append({
                 'id': user_obj.id,
                 'name': user_obj.name,
@@ -848,12 +929,12 @@ def super_admin_dashboard_data(request):
         setting = SuperSetting.objects.filter(id=1).first()
         system_balance = int(getattr(setting, 'balance', 0) or 0)
 
-        # Transaction and WhatsApp earnings by category (real-time from DB)
-        transaction_earnings = TransactionHistory.objects.filter(
+        # Transaction and WhatsApp earnings (in date range)
+        transaction_earnings = transactions_in_range.filter(
             status='success',
             transaction_category='transaction_fee'
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-        whatsapp_earnings = TransactionHistory.objects.filter(
+        whatsapp_earnings = transactions_in_range.filter(
             status='success',
             transaction_category='whatsapp_usage'
         ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
@@ -880,12 +961,15 @@ def super_admin_dashboard_data(request):
         pending_withdrawals_qs = ShareholderWithdrawal.objects.filter(status='pending').select_related('user').order_by('-created_at')[:20]
         pending_withdrawals_serializer = ShareholderWithdrawalSerializer(pending_withdrawals_qs, many=True, context={'request': request})
 
-        # Top revenue vendors (for chart)
+        # Top revenue vendors (for chart, in date range)
         top_revenue_vendors = []
         vendors_for_revenue = User.objects.filter(is_superuser=False).order_by('id')[:100]
         for v in vendors_for_revenue:
-            rev = TransactionHistory.objects.filter(user=v, status='success').aggregate(total=Sum('amount'))['total'] or Decimal('0')
-            orders_count = Order.objects.filter(user=v).count()
+            rev = transactions_in_range.filter(user=v, status='success').aggregate(total=Sum('amount'))['total'] or Decimal('0')
+            if start_dt is not None:
+                orders_count = Order.objects.filter(user=v, created_at__gte=start_dt, created_at__lte=end_dt).count()
+            else:
+                orders_count = Order.objects.filter(user=v).count()
             logo_url = None
             if v.logo:
                 logo_url = request.build_absolute_uri(v.logo.url)
@@ -900,27 +984,39 @@ def super_admin_dashboard_data(request):
         top_revenue_vendors.sort(key=lambda x: x['total_revenue'], reverse=True)
         top_revenue_vendors = top_revenue_vendors[:20]
 
-        # Financial trends (daily income, outgoing, profit, loss)
+        # Financial trends (daily in range or last 30 for "all")
         financial_trends = []
-        for i in range(30):
-            day = today - timedelta(days=29 - i)
-            day_income = TransactionHistory.objects.filter(
-                status='success',
-                created_at__date=day
-            ).aggregate(total=Sum('amount'))['total'] or Decimal('0')
-            day_outgoing = ShareholderWithdrawal.objects.filter(
-                status='approved',
-                updated_at__date=day
-            ).aggregate(total=Sum('amount'))['total'] or 0
-            day_outgoing = Decimal(str(day_outgoing))
-            profit = day_income - day_outgoing
-            financial_trends.append({
-                'date': day.isoformat(),
-                'income': float(day_income),
-                'outgoing': float(day_outgoing),
-                'profit': float(profit) if profit >= 0 else 0,
-                'loss': float(-profit) if profit < 0 else 0,
-            })
+        if start_dt is not None:
+            start_date = start_dt.date()
+            end_date = end_dt.date()
+            current = start_date
+            while current <= end_date:
+                day_income = transactions_in_range.filter(status='success', created_at__date=current).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                day_outgoing = ShareholderWithdrawal.objects.filter(status='approved', updated_at__date=current).aggregate(total=Sum('amount'))['total'] or 0
+                day_outgoing = Decimal(str(day_outgoing))
+                profit = day_income - day_outgoing
+                financial_trends.append({
+                    'date': current.isoformat(),
+                    'income': float(day_income),
+                    'outgoing': float(day_outgoing),
+                    'profit': float(profit) if profit >= 0 else 0,
+                    'loss': float(-profit) if profit < 0 else 0,
+                })
+                current += timedelta(days=1)
+        else:
+            for i in range(30):
+                day = today - timedelta(days=29 - i)
+                day_income = transactions_in_range.filter(status='success', created_at__date=day).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                day_outgoing = ShareholderWithdrawal.objects.filter(status='approved', updated_at__date=day).aggregate(total=Sum('amount'))['total'] or 0
+                day_outgoing = Decimal(str(day_outgoing))
+                profit = day_income - day_outgoing
+                financial_trends.append({
+                    'date': day.isoformat(),
+                    'income': float(day_income),
+                    'outgoing': float(day_outgoing),
+                    'profit': float(profit) if profit >= 0 else 0,
+                    'loss': float(-profit) if profit < 0 else 0,
+                })
 
         # Revenue breakdown (for pie chart)
         revenue_breakdown = {
