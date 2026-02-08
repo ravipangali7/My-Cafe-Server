@@ -215,15 +215,33 @@ class Order(models.Model):
         ("failed", "Failed"),
     )
 
+    ORDER_TYPE_CHOICES = (
+        ("table", "Table"),
+        ("packing", "Packing"),
+        ("delivery", "Delivery"),
+    )
+
+    PAYMENT_METHOD_CHOICES = (
+        ("cash", "Cash"),
+        ("online", "Online"),
+    )
+
     id = models.BigAutoField(primary_key=True)
     name = models.CharField(max_length=100)
     user = models.ForeignKey(User, related_name="orders", on_delete=models.DO_NOTHING)
     phone = models.CharField(max_length=15)
     country_code = models.CharField(max_length=5, default='91')
     table_no = models.CharField(max_length=10, blank=True, null=True)
+    order_type = models.CharField(
+        max_length=20, choices=ORDER_TYPE_CHOICES, default="table"
+    )
+    address = models.CharField(max_length=500, blank=True, default="")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     payment_status = models.CharField(
         max_length=20, choices=PAYMENT_STATUS_CHOICES, default="pending"
+    )
+    payment_method = models.CharField(
+        max_length=20, choices=PAYMENT_METHOD_CHOICES, default="online"
     )
     total = models.DecimalField(max_digits=12, decimal_places=2)
     fcm_token = models.TextField(blank=True, null=True)

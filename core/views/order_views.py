@@ -124,6 +124,9 @@ def order_create(request):
         name = data.get('name')
         phone = data.get('phone')
         table_no = data.get('table_no') or ''
+        order_type = data.get('order_type') or 'table'
+        address = (data.get('address') or '').strip()
+        payment_method = data.get('payment_method') or 'online'
         status_val = data.get('status', 'pending')
         payment_status = data.get('payment_status', 'pending')
         fcm_token = data.get('fcm_token', '')
@@ -157,6 +160,19 @@ def order_create(request):
         is_vendor_created = (
             request.user.is_authenticated and request.user == order_user
         )
+        # Delivery orders require address
+        if order_type == 'delivery' and not address:
+            return Response(
+                {'error': 'Address is required for delivery orders.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # Cash payment: only allowed when vendor is creating their own order
+        if payment_method == 'cash':
+            if not request.user.is_authenticated or request.user != order_user:
+                return Response(
+                    {'error': 'Cash payment is only available when the vendor is logged in and ordering from their own menu.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         # Public/customer orders: block if restaurant is offline
         if not is_vendor_created and not order_user.is_online:
             return Response(
@@ -173,13 +189,76 @@ def order_create(request):
         total_with_fee = order_amount + Decimal(str(transaction_fee))
         order_total = order_amount if is_vendor_created else total_with_fee
         
-        # Create order with total (including fee only for non-vendor-created orders)
+        # Cash path: create order with payment_status=paid, no transaction records
+        if payment_method == 'cash' and is_vendor_created:
+            order = Order.objects.create(
+                name=name,
+                phone=phone,
+                table_no=table_no or '',
+                order_type=order_type,
+                address=address,
+                status=status_val,
+                payment_status='paid',
+                payment_method='cash',
+                total=order_total,
+                fcm_token=fcm_token,
+                user=order_user
+            )
+            # Ensure VendorCustomer exists
+            phone_stripped = (phone or '').strip()
+            if phone_stripped:
+                VendorCustomer.objects.get_or_create(
+                    user=order_user,
+                    phone=phone_stripped,
+                    defaults={'name': name or 'Customer'}
+                )
+            # Parse and create order items
+            try:
+                items_list = json.loads(items_data) if isinstance(items_data, str) else items_data
+                for item_data in items_list:
+                    product_id = item_data.get('product_id')
+                    product_variant_id = item_data.get('product_variant_id')
+                    quantity = item_data.get('quantity', 1)
+                    price = item_data.get('price', '0')
+                    if product_id and product_variant_id:
+                        try:
+                            product = Product.objects.get(id=product_id, user=order_user)
+                            product_variant = ProductVariant.objects.get(id=product_variant_id, product=product)
+                            item_total = Decimal(str(price)) * int(quantity)
+                            OrderItem.objects.create(
+                                order=order,
+                                product=product,
+                                product_variant=product_variant,
+                                price=Decimal(str(price)),
+                                quantity=int(quantity),
+                                total=item_total
+                            )
+                        except (Product.DoesNotExist, ProductVariant.DoesNotExist):
+                            continue
+            except (json.JSONDecodeError, ValueError):
+                pass
+            try:
+                send_incoming_order_to_vendor(order)
+            except Exception as e:
+                logger.error(f'Failed to send incoming order FCM: {str(e)}')
+            serializer = OrderSerializer(order, context={'request': request})
+            return Response({
+                'order': serializer.data,
+                'transaction_fee': 0,
+                'order_amount': str(order_amount),
+                'message': 'Order placed successfully (cash).',
+            }, status=status.HTTP_201_CREATED)
+        
+        # Non-cash path: create order with payment_status from request (default pending)
         order = Order.objects.create(
             name=name,
             phone=phone,
             table_no=table_no or '',
+            order_type=order_type,
+            address=address,
             status=status_val,
             payment_status=payment_status,
+            payment_method=payment_method,
             total=order_total,
             fcm_token=fcm_token,
             user=order_user

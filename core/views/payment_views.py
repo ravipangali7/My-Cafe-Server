@@ -79,8 +79,11 @@ def _create_order_from_payload(transaction):
             name=payload['name'],
             phone=payload['phone'],
             table_no=payload.get('table_no') or '',
+            order_type=payload.get('order_type') or 'table',
+            address=payload.get('address') or '',
             status='pending',
             payment_status='paid',
+            payment_method='online',
             total=transaction.amount,
             fcm_token=payload.get('fcm_token') or '',
             user=order_user
@@ -356,6 +359,8 @@ def initiate_order_payment(request):
         name = data.get('name')
         phone = data.get('phone')
         table_no = data.get('table_no') or ''
+        order_type = data.get('order_type') or 'table'
+        address = (data.get('address') or '').strip()
         vendor_phone = data.get('vendor_phone')
         total = data.get('total')
         items_data = data.get('items', '[]')
@@ -390,6 +395,11 @@ def initiate_order_payment(request):
                 {'error': 'Restaurant is currently offline. Orders cannot be placed at this time.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        if order_type == 'delivery' and not address:
+            return Response(
+                {'error': 'Address is required for delivery orders.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         super_settings = SuperSetting.objects.first()
         transaction_fee = super_settings.per_transaction_fee if super_settings else 10
@@ -417,6 +427,8 @@ def initiate_order_payment(request):
                 'name': name,
                 'phone': phone_normalized,
                 'table_no': table_no or '',
+                'order_type': order_type,
+                'address': address,
                 'vendor_phone': vendor_phone,
                 'total': str(total),
                 'items': items_str,
@@ -492,6 +504,8 @@ def initiate_order_payment(request):
             'name': name,
             'phone': customer_mobile_10,
             'table_no': table_no or '',
+            'order_type': order_type,
+            'address': address,
             'vendor_phone': vendor_phone,
             'total': str(total),
             'items': items_str,
@@ -727,8 +741,11 @@ def verify_payment(request, client_txn_id):
                                 name=payload['name'],
                                 phone=payload['phone'],
                                 table_no=payload.get('table_no') or '',
+                                order_type=payload.get('order_type') or 'table',
+                                address=payload.get('address') or '',
                                 status='pending',
                                 payment_status='paid',
+                                payment_method='online',
                                 total=transaction.amount,
                                 fcm_token=payload.get('fcm_token') or '',
                                 user=order_user
@@ -998,8 +1015,11 @@ def payment_callback(request):
                                     name=payload['name'],
                                     phone=payload['phone'],
                                     table_no=payload.get('table_no') or '',
+                                    order_type=payload.get('order_type') or 'table',
+                                    address=payload.get('address') or '',
                                     status='pending',
                                     payment_status='paid',
+                                    payment_method='online',
                                     total=transaction.amount,
                                     fcm_token=payload.get('fcm_token') or '',
                                     user=order_user
