@@ -210,7 +210,7 @@ NEPAL_PAYMENT_API_PASSWORD = os.environ.get('NEPAL_PAYMENT_API_PASSWORD', 'MXcaf
 NEPAL_PAYMENT_KEY = os.environ.get('NEPAL_PAYMENT_KEY', 'key@1234')
 NEPAL_PAYMENT_API_BASE = os.environ.get(
     'NEPAL_PAYMENT_API_BASE',
-    'https://api.nepalpayment.com',
+    'https://apisandbox.nepalpayment.com',
 )
 NEPAL_PAYMENT_GATEWAY_URL = os.environ.get(
     'NEPAL_PAYMENT_GATEWAY_URL',
