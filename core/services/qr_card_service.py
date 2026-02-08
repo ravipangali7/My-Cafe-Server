@@ -1,7 +1,7 @@
 """
 Generate QR card as PNG or PDF. Design must match React MenuQRCode.tsx 100%.
 Uses qr_card_constants for layout and React-identical get_initials/color_from_name.
-Print output: 4" x 6" at 300 DPI (1200 x 1800 px) with margins for scannability.
+Print output: 4" x 6" at 300 DPI (1200 x 1800 px) with 0.5" golden border and white content area (3" x 5").
 """
 from io import BytesIO
 import os
@@ -16,16 +16,18 @@ from .qr_card_constants import (
     CARD_BORDER_RADIUS,
     CARD_PADDING_TOP_BOTTOM,
     CARD_WIDTH,
+    DARK,
     FOOTER_FONT_SIZE,
     FOOTER_MARGIN_TOP,
     GOLD,
     LOGO_BORDER_WIDTH,
     LOGO_MARGIN_BOTTOM,
     LOGO_SIZE,
+    MUTED,
+    PRINT_BORDER_PX,
     PRINT_CONTENT_H,
     PRINT_CONTENT_W,
     PRINT_HEIGHT_PX,
-    PRINT_MARGIN_PX,
     PRINT_WIDTH_PX,
     QR_CONTAINER_BORDER_WIDTH,
     QR_CONTAINER_PADDING,
@@ -78,10 +80,10 @@ def _scale(design_val: int, scale: float) -> int:
 
 
 def _make_logo_circle(vendor, logo_size: int, logo_border_width: int) -> Image.Image:
-    """Logo circle: vendor image (cropped to circle) or initials on color_from_name. Gold border."""
+    """Logo circle: vendor image (cropped to circle) or initials on color_from_name. Gold border. Background matches CARD_BG (white)."""
     size = logo_size
     gold_rgb = hex_to_rgb(GOLD)
-    black_rgb = hex_to_rgb(CARD_BG)
+    card_bg_rgb = hex_to_rgb(CARD_BG)
 
     out = None
     logo_path = getattr(vendor.logo, "path", None) if getattr(vendor, "logo", None) else None
@@ -92,7 +94,7 @@ def _make_logo_circle(vendor, logo_size: int, logo_border_width: int) -> Image.I
             mask = Image.new("L", (size, size), 0)
             draw_mask = ImageDraw.Draw(mask)
             draw_mask.ellipse((0, 0, size - 1, size - 1), fill=255)
-            out = Image.new("RGB", (size, size), black_rgb)
+            out = Image.new("RGB", (size, size), card_bg_rgb)
             out.paste(img, (0, 0), mask)
         except Exception:
             out = None
@@ -100,7 +102,7 @@ def _make_logo_circle(vendor, logo_size: int, logo_border_width: int) -> Image.I
         # Initials on color_from_name
         bg_hex = color_from_name(vendor.name if getattr(vendor, "name", None) else "")
         bg_rgb = hex_to_rgb(bg_hex)
-        out = Image.new("RGB", (size, size), black_rgb)
+        out = Image.new("RGB", (size, size), card_bg_rgb)
         draw = ImageDraw.Draw(out)
         draw.ellipse((0, 0, size - 1, size - 1), fill=tuple(bg_rgb), outline=None)
         initials = get_initials(getattr(vendor, "name", "") or "")
@@ -119,7 +121,7 @@ def _make_logo_circle(vendor, logo_size: int, logo_border_width: int) -> Image.I
 
     # Gold ring: paste logo then draw ring on top
     ring_size = size + logo_border_width * 2
-    final = Image.new("RGB", (ring_size, ring_size), black_rgb)
+    final = Image.new("RGB", (ring_size, ring_size), card_bg_rgb)
     final.paste(out, (logo_border_width, logo_border_width))
     draw_final = ImageDraw.Draw(final)
     draw_final.ellipse((0, 0, ring_size - 1, ring_size - 1), outline=gold_rgb, width=logo_border_width)
@@ -152,9 +154,10 @@ def _build_card_image_impl(vendor, menu_url: str, card_width_px: int | None = No
     scale = card_width_px / CARD_WIDTH
 
     padding_tb = _scale(CARD_PADDING_TOP_BOTTOM, scale)
-    black_rgb = hex_to_rgb(CARD_BG)
+    card_bg_rgb = hex_to_rgb(CARD_BG)
     gold_rgb = hex_to_rgb(GOLD)
-    white_rgb = (255, 255, 255)
+    dark_rgb = hex_to_rgb(DARK)
+    muted_rgb = hex_to_rgb(MUTED)
 
     logo_size = _scale(LOGO_SIZE, scale)
     logo_border_width = _scale(LOGO_BORDER_WIDTH, scale)
@@ -196,13 +199,13 @@ def _build_card_image_impl(vendor, menu_url: str, card_width_px: int | None = No
         + padding_tb
     )
 
-    img = Image.new("RGB", (card_width_px, card_height), black_rgb)
+    img = Image.new("RGB", (card_width_px, card_height), card_bg_rgb)
     draw = ImageDraw.Draw(img)
 
     draw.rounded_rectangle(
         (0, 0, card_width_px - 1, card_height - 1),
         radius=card_border_radius,
-        fill=black_rgb,
+        fill=card_bg_rgb,
         outline=None,
     )
 
@@ -220,7 +223,7 @@ def _build_card_image_impl(vendor, menu_url: str, card_width_px: int | None = No
     except (TypeError, AttributeError):
         tw = len(title_text) * 14
     title_x = (card_width_px - tw) // 2
-    draw.text((title_x, y), title_text, fill=white_rgb, font=title_font)
+    draw.text((title_x, y), title_text, fill=dark_rgb, font=title_font)
     y += title_h + title_mb
 
     sub_font = _load_font(subtitle_font_size)
@@ -231,7 +234,7 @@ def _build_card_image_impl(vendor, menu_url: str, card_width_px: int | None = No
     except (TypeError, AttributeError):
         tw = len(sub_text) * 6
     sub_x = (card_width_px - tw) // 2
-    draw.text((sub_x, y), sub_text, fill=(255, 255, 255), font=sub_font)
+    draw.text((sub_x, y), sub_text, fill=muted_rgb, font=sub_font)
     y += subtitle_h + subtitle_mb
 
     scan_order_font = _load_font(scan_order_font_size, bold=True)
@@ -271,20 +274,33 @@ def _build_card_image_impl(vendor, menu_url: str, card_width_px: int | None = No
     except (TypeError, AttributeError):
         tw = len(footer_text) * 6
     footer_x = (card_width_px - tw) // 2
-    draw.text((footer_x, y), footer_text, fill=(179, 179, 179), font=footer_font)
+    draw.text((footer_x, y), footer_text, fill=muted_rgb, font=footer_font)
 
     return img
 
 
 def _build_print_image(vendor, menu_url: str) -> Image.Image:
-    """Build 4" x 6" print image at 300 DPI: card at PRINT_CONTENT_W width, centered on PRINT_WIDTH_PX x PRINT_HEIGHT_PX with margins."""
+    """Build 4" x 6" print image at 300 DPI: 0.5" golden border, white content area (3" x 5") with card centered inside."""
     card_img = _build_card_image_impl(vendor, menu_url, card_width_px=PRINT_CONTENT_W)
     card_w, card_h = card_img.size
-    # Canvas: 1200 x 1800, margins 75 px; center card in content area
-    black_rgb = hex_to_rgb(CARD_BG)
-    canvas = Image.new("RGB", (PRINT_WIDTH_PX, PRINT_HEIGHT_PX), black_rgb)
-    paste_x = PRINT_MARGIN_PX + (PRINT_CONTENT_W - card_w) // 2
-    paste_y = PRINT_MARGIN_PX + max(0, (PRINT_CONTENT_H - card_h) // 2)
+    gold_rgb = hex_to_rgb(GOLD)
+    white_rgb = hex_to_rgb(CARD_BG)
+    # Full canvas 1200 x 1800; fill with gold (0.5" border on all sides)
+    canvas = Image.new("RGB", (PRINT_WIDTH_PX, PRINT_HEIGHT_PX), gold_rgb)
+    # Inner content area (3" x 5" = 900 x 1500) in white
+    inner_left = PRINT_BORDER_PX
+    inner_top = PRINT_BORDER_PX
+    inner_w = PRINT_CONTENT_W
+    inner_h = PRINT_CONTENT_H
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle(
+        (inner_left, inner_top, inner_left + inner_w - 1, inner_top + inner_h - 1),
+        fill=white_rgb,
+        outline=None,
+    )
+    # Center card image in inner area
+    paste_x = inner_left + (inner_w - card_w) // 2
+    paste_y = inner_top + max(0, (inner_h - card_h) // 2)
     canvas.paste(card_img, (paste_x, paste_y))
     return canvas
 

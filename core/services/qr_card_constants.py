@@ -3,10 +3,12 @@ Design constants for QR card (PNG/PDF).
 Must match React MenuQRCode.tsx exactly for 100% parity.
 """
 
-# Colors (hex) - same as React MenuQRCode.tsx
-CARD_BG = "#0a0a0a"
+# Colors (hex) - same as React MenuQRCode.tsx (white card, dark text)
+CARD_BG = "#ffffff"
 GOLD = "#c9a227"
 WHITE = "#ffffff"
+DARK = "#0a0a0a"           # title on white
+MUTED = "#6b7280"          # subtitle and footer on white
 WHITE_90 = (255, 255, 255, 230)  # rgba(255,255,255,0.9) for subtitle
 WHITE_70 = (255, 255, 255, 179)   # rgba(255,255,255,0.7) for footer
 QR_BG = "#ffffff"
@@ -54,15 +56,17 @@ TITLE_MARGIN_BOTTOM = 2   # mb-0.5
 SUBTITLE_MARGIN_BOTTOM = 12  # mb-3 (updated to match React)
 FOOTER_MARGIN_TOP = 16    # mt-4
 
-# Print: 4" x 6" at 300 DPI with margin for quiet zone
+# Print: 4" x 6" at 300 DPI; 0.5" golden border inside, content area 3" x 5"
 PRINT_DPI = 300
 PRINT_WIDTH_IN = 4
 PRINT_HEIGHT_IN = 6
 PRINT_WIDTH_PX = PRINT_DPI * PRINT_WIDTH_IN   # 1200
 PRINT_HEIGHT_PX = PRINT_DPI * PRINT_HEIGHT_IN  # 1800
-PRINT_MARGIN_PX = 75   # 0.25" at 300 DPI
-PRINT_CONTENT_W = PRINT_WIDTH_PX - 2 * PRINT_MARGIN_PX   # 1050
-PRINT_CONTENT_H = PRINT_HEIGHT_PX - 2 * PRINT_MARGIN_PX  # 1650
+PRINT_BORDER_IN = 0.5
+PRINT_BORDER_PX = int(PRINT_DPI * PRINT_BORDER_IN)  # 150 px = 0.5"
+# Inner content area (3" x 5") after 0.5" border on all sides
+PRINT_CONTENT_W = PRINT_WIDTH_PX - 2 * PRINT_BORDER_PX   # 900
+PRINT_CONTENT_H = PRINT_HEIGHT_PX - 2 * PRINT_BORDER_PX  # 1500
 
 
 def get_initials(name: str) -> str:
