@@ -5,14 +5,20 @@ from ..models import User, Category, Product, ProductVariant
 from ..serializers import CategorySerializer, ProductSerializer, ProductVariantSerializer, UserSerializer
 
 
+def _vendor_by_identifier(identifier):
+    """Resolve vendor by username or phone (identifier)."""
+    vendor = User.objects.filter(username=identifier, is_active=True).first()
+    if not vendor:
+        vendor = User.objects.filter(phone=identifier, is_active=True).first()
+    return vendor
+
+
 @api_view(['GET'])
 def menu_by_vendor_phone(request, vendor_phone):
-    """Get menu (categories and products) for a vendor by phone number - public endpoint"""
+    """Get menu (categories and products) for a vendor by username or phone - public endpoint"""
     try:
-        # Find vendor by phone
-        try:
-            vendor = User.objects.get(phone=vendor_phone, is_active=True)
-        except User.DoesNotExist:
+        vendor = _vendor_by_identifier(vendor_phone)
+        if not vendor:
             return Response(
                 {'error': 'Vendor not found'},
                 status=status.HTTP_404_NOT_FOUND
@@ -104,9 +110,9 @@ def menu_by_vendor_phone(request, vendor_phone):
 
 @api_view(['GET'])
 def vendor_public_by_phone(request, vendor_phone):
-    """Get minimal vendor info by phone for public QR page - no authentication required"""
+    """Get minimal vendor info by username or phone for public QR page - no authentication required"""
     try:
-        vendor = User.objects.filter(phone=vendor_phone, is_active=True).first()
+        vendor = _vendor_by_identifier(vendor_phone)
         if not vendor:
             return Response(
                 {'error': 'Vendor not found'},

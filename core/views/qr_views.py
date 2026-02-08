@@ -33,8 +33,9 @@ def qr_generate(request, vendor_id):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Generate menu URL
-        menu_url = f"{request.scheme}://{request.get_host()}/menu/{vendor.phone}"
+        # Generate menu URL (use username for new-style URLs; fallback to phone for legacy)
+        menu_slug = getattr(vendor, 'username', None) or vendor.phone
+        menu_url = f"{request.scheme}://{request.get_host()}/menu/{menu_slug}"
         
         # Get vendor data
         serializer = UserSerializer(vendor, context={'request': request})
@@ -82,8 +83,9 @@ def qr_download_pdf(request, vendor_id):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Generate menu URL
-        menu_url = f"{request.scheme}://{request.get_host()}/menu/{vendor.phone}"
+        # Generate menu URL (use username for new-style URLs; fallback to phone for legacy)
+        menu_slug = getattr(vendor, 'username', None) or vendor.phone
+        menu_url = f"{request.scheme}://{request.get_host()}/menu/{menu_slug}"
         
         # Get vendor data
         serializer = UserSerializer(vendor, context={'request': request})
@@ -116,14 +118,16 @@ def qr_download_pdf(request, vendor_id):
 
 @api_view(['GET'])
 def qr_card_download_png(request, vendor_phone):
-    """Download QR card as PNG. Public endpoint (by vendor_phone)."""
-    vendor = User.objects.filter(phone=vendor_phone, is_active=True).first()
+    """Download QR card as PNG. Public endpoint (by username or phone)."""
+    from .menu_views import _vendor_by_identifier
+    vendor = _vendor_by_identifier(vendor_phone)
     if not vendor:
         return Response(
             {'error': 'Vendor not found'},
             status=status.HTTP_404_NOT_FOUND
         )
-    menu_url = f"{request.scheme}://{request.get_host()}/menu/{vendor.phone}"
+    menu_slug = getattr(vendor, 'username', None) or vendor.phone
+    menu_url = f"{request.scheme}://{request.get_host()}/menu/{menu_slug}"
     buffer = generate_qr_card_png(vendor, menu_url)
     filename = f"qr-code-{vendor.phone}.png"
     response = HttpResponse(buffer.getvalue(), content_type='image/png')
@@ -133,14 +137,16 @@ def qr_card_download_png(request, vendor_phone):
 
 @api_view(['GET'])
 def qr_card_download_pdf(request, vendor_phone):
-    """Download QR card as PDF. Public endpoint (by vendor_phone)."""
-    vendor = User.objects.filter(phone=vendor_phone, is_active=True).first()
+    """Download QR card as PDF. Public endpoint (by username or phone)."""
+    from .menu_views import _vendor_by_identifier
+    vendor = _vendor_by_identifier(vendor_phone)
     if not vendor:
         return Response(
             {'error': 'Vendor not found'},
             status=status.HTTP_404_NOT_FOUND
         )
-    menu_url = f"{request.scheme}://{request.get_host()}/menu/{vendor.phone}"
+    menu_slug = getattr(vendor, 'username', None) or vendor.phone
+    menu_url = f"{request.scheme}://{request.get_host()}/menu/{menu_slug}"
     buffer = generate_qr_card_pdf(vendor, menu_url)
     filename = f"qr-code-{vendor.phone}.pdf"
     response = HttpResponse(buffer.getvalue(), content_type='application/pdf')

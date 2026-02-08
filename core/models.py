@@ -80,8 +80,6 @@ class User(AbstractUser):
         return f'{self.name} - ({self.phone})'
 
     def save(self, *args, **kwargs):
-        # Automatically set username to phone value
-        self.username = self.phone
         super().save(*args, **kwargs)
 
     def _str_(self):

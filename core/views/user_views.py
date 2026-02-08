@@ -218,6 +218,15 @@ def update_user(request):
         # Update fields if provided
         if 'name' in data:
             user.name = data.get('name')
+        if 'username' in data:
+            new_username = (data.get('username') or '').strip()
+            if new_username and User.objects.filter(username=new_username).exclude(id=user.id).exists():
+                return Response(
+                    {'error': 'This username is already taken'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if new_username:
+                user.username = new_username
         if 'phone' in data:
             new_phone = data.get('phone')
             # Check if phone is already taken by another user
@@ -227,7 +236,6 @@ def update_user(request):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             user.phone = new_phone
-            user.username = new_phone  # Keep username in sync
         if 'expire_date' in data:
             expire_date = data.get('expire_date')
             user.expire_date = expire_date if expire_date else None

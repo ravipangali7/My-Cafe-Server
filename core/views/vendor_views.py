@@ -82,6 +82,42 @@ def vendor_list(request):
         )
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def check_username(request):
+    """Check if a username is available; if taken, return a suggested alternative."""
+    username = (request.GET.get('username') or '').strip()
+    if not username:
+        return Response(
+            {'error': 'username query parameter is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    exclude_id = request.GET.get('exclude_user_id')
+    try:
+        exclude_id = int(exclude_id) if exclude_id else None
+    except (TypeError, ValueError):
+        exclude_id = None
+    qs = User.objects.filter(username=username)
+    if exclude_id is not None:
+        qs = qs.exclude(id=exclude_id)
+    if qs.exists():
+        base = username.rstrip('0123456789')
+        suffix = username[len(base):] if len(base) < len(username) else ''
+        n = int(suffix) if suffix else 0
+        while True:
+            n += 1
+            suggestion = f"{base}{n}"
+            sug_qs = User.objects.filter(username=suggestion)
+            if exclude_id is not None:
+                sug_qs = sug_qs.exclude(id=exclude_id)
+            if not sug_qs.exists():
+                return Response(
+                    {'available': False, 'suggestion': suggestion},
+                    status=status.HTTP_200_OK
+                )
+    return Response({'available': True}, status=status.HTTP_200_OK)
+
+
 @api_view(['POST'])
 def vendor_create(request):
     """Create a new vendor - superuser only"""
@@ -104,6 +140,7 @@ def vendor_create(request):
             data = request.POST
         
         name = data.get('name')
+        username = (data.get('username') or '').strip()
         phone = data.get('phone')
         password = data.get('password')
         email = data.get('email', '')
@@ -112,13 +149,17 @@ def vendor_create(request):
         expire_date = data.get('expire_date')
         token = data.get('token', '')
         
-        if not name or not phone or not password:
+        if not name or not username or not phone or not password:
             return Response(
-                {'error': 'Name, phone, and password are required'},
+                {'error': 'Name, username, phone, and password are required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if user already exists
+        if User.objects.filter(username=username).exists():
+            return Response(
+                {'error': 'This username is already taken'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         if User.objects.filter(phone=phone).exists():
             return Response(
                 {'error': 'User with this phone number already exists'},
@@ -127,7 +168,7 @@ def vendor_create(request):
         
         # Create user
         user = User.objects.create_user(
-            username=phone,
+            username=username,
             phone=phone,
             name=name,
             email=email if email else f"{phone}@cafe.local",
@@ -271,6 +312,15 @@ def vendor_edit(request, id):
         # Update fields if provided
         if 'name' in data:
             vendor.name = data.get('name')
+        if 'username' in data:
+            new_username = (data.get('username') or '').strip()
+            if new_username and User.objects.filter(username=new_username).exclude(id=vendor.id).exists():
+                return Response(
+                    {'error': 'This username is already taken'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if new_username:
+                vendor.username = new_username
         if 'phone' in data:
             new_phone = data.get('phone')
             # Check if phone is already taken by another user
@@ -280,7 +330,6 @@ def vendor_edit(request, id):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             vendor.phone = new_phone
-            vendor.username = new_phone  # Keep username in sync
         if 'expire_date' in data:
             expire_date = data.get('expire_date')
             vendor.expire_date = expire_date if expire_date else None
