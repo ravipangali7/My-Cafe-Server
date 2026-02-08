@@ -597,6 +597,10 @@ def vendor_dashboard_data(request):
         total_sales_result = orders_in_range.aggregate(total=Sum('total'))
         total_sales = total_sales_result['total'] or Decimal('0')
 
+        # All-time totals (for Dashboard "All Time" card regardless of date filter)
+        total_orders_all_time = orders_base.count()
+        total_sales_all_time = orders_base.aggregate(total=Sum('total'))['total'] or Decimal('0')
+
         # Calculate total revenue (successful transactions in date range)
         total_revenue_result = transactions_in_range.filter(status='success').aggregate(total=Sum('amount'))
         total_revenue = total_revenue_result['total'] or Decimal('0')
@@ -646,7 +650,7 @@ def vendor_dashboard_data(request):
                 day_start = timezone.make_aware(datetime.combine(current, datetime.min.time()))
                 day_end = day_start + timedelta(days=1)
                 day_orders = orders_in_range.filter(created_at__gte=day_start, created_at__lt=day_end).count()
-                day_revenue = transactions_in_range.filter(status='success', created_at__gte=day_start, created_at__lt=day_end).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                day_revenue = orders_in_range.filter(created_at__gte=day_start, created_at__lt=day_end).aggregate(total=Sum('total'))['total'] or Decimal('0')
                 order_trends_daily.append({'date': current.isoformat(), 'orders': day_orders, 'revenue': str(day_revenue)})
                 current += timedelta(days=1)
             # Weekly: one point per week (use same days as daily for "weekly" bucket when range <= 7 days)
@@ -660,7 +664,7 @@ def vendor_dashboard_data(request):
                     ws = timezone.make_aware(datetime.combine(week_start, datetime.min.time()))
                     we = timezone.make_aware(datetime.combine(min(week_end, end_date + timedelta(days=1)), datetime.min.time()))
                     wo = orders_in_range.filter(created_at__gte=ws, created_at__lt=we).count()
-                    wr = transactions_in_range.filter(status='success', created_at__gte=ws, created_at__lt=we).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                    wr = orders_in_range.filter(created_at__gte=ws, created_at__lt=we).aggregate(total=Sum('total'))['total'] or Decimal('0')
                     order_trends_weekly.append({'date': week_start.isoformat(), 'orders': wo, 'revenue': str(wr)})
                     week_start = week_end
             # Monthly: one point per month in range
@@ -673,7 +677,7 @@ def vendor_dashboard_data(request):
                     next_month = month_date.replace(month=month_date.month + 1, day=1)
                 month_end_dt = timezone.make_aware(datetime.combine(next_month, datetime.min.time())) - timedelta(microseconds=1)
                 mo = orders_in_range.filter(created_at__gte=month_start_dt, created_at__lte=month_end_dt).count()
-                mr = transactions_in_range.filter(status='success', created_at__gte=month_start_dt, created_at__lte=month_end_dt).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                mr = orders_in_range.filter(created_at__gte=month_start_dt, created_at__lte=month_end_dt).aggregate(total=Sum('total'))['total'] or Decimal('0')
                 order_trends_monthly.append({'date': month_date.strftime('%Y-%m'), 'orders': mo, 'revenue': str(mr)})
                 month_date = next_month
         else:
@@ -683,7 +687,7 @@ def vendor_dashboard_data(request):
                 day_start = timezone.make_aware(datetime.combine(day, datetime.min.time()))
                 day_end = day_start + timedelta(days=1)
                 day_orders = orders_base.filter(created_at__gte=day_start, created_at__lt=day_end).count()
-                day_revenue = transactions_base.filter(status='success', created_at__gte=day_start, created_at__lt=day_end).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                day_revenue = orders_base.filter(created_at__gte=day_start, created_at__lt=day_end).aggregate(total=Sum('total'))['total'] or Decimal('0')
                 order_trends_daily.append({'date': day.isoformat(), 'orders': day_orders, 'revenue': str(day_revenue)})
             for i in range(12):
                 week_start = today - timedelta(days=7 * (11 - i))
@@ -691,7 +695,7 @@ def vendor_dashboard_data(request):
                 ws = timezone.make_aware(datetime.combine(week_start, datetime.min.time()))
                 we = timezone.make_aware(datetime.combine(week_end, datetime.min.time()))
                 wo = orders_base.filter(created_at__gte=ws, created_at__lt=we).count()
-                wr = transactions_base.filter(status='success', created_at__gte=ws, created_at__lt=we).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                wr = orders_base.filter(created_at__gte=ws, created_at__lt=we).aggregate(total=Sum('total'))['total'] or Decimal('0')
                 order_trends_weekly.append({'date': week_start.isoformat(), 'orders': wo, 'revenue': str(wr)})
             for i in range(12):
                 # Go back (11-i) months from current month
@@ -705,7 +709,7 @@ def vendor_dashboard_data(request):
                 else:
                     month_end_dt = timezone.make_aware(datetime.combine(date(year, month + 1, 1), datetime.min.time())) - timedelta(microseconds=1)
                 mo = orders_base.filter(created_at__gte=month_start_dt, created_at__lte=month_end_dt).count()
-                mr = transactions_base.filter(status='success', created_at__gte=month_start_dt, created_at__lte=month_end_dt).aggregate(total=Sum('amount'))['total'] or Decimal('0')
+                mr = orders_base.filter(created_at__gte=month_start_dt, created_at__lte=month_end_dt).aggregate(total=Sum('total'))['total'] or Decimal('0')
                 order_trends_monthly.append({'date': month_date.strftime('%Y-%m'), 'orders': mo, 'revenue': str(mr)})
 
         order_trends = {
@@ -789,6 +793,8 @@ def vendor_dashboard_data(request):
             'subscription_history': subscription_history,
             'total_orders': total_orders,
             'total_sales': str(total_sales),
+            'total_orders_all_time': total_orders_all_time,
+            'total_sales_all_time': str(total_sales_all_time),
             'total_revenue': str(total_revenue),
             'total_products': total_products,
             'total_qr_stand_orders': total_qr_stand_orders,
