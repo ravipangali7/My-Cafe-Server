@@ -6,6 +6,10 @@ from datetime import datetime, time
 
 from django.utils import timezone
 
+# Standardized day boundaries for all date filters app-wide
+START_OF_DAY_TIME = time(0, 1, 0)  # 00:01 AM
+END_OF_DAY_TIME = time(23, 59, 59, 999999)  # 11:59 PM (end of day)
+
 
 def parse_date_range(start_date_str, end_date_str):
     """
@@ -24,8 +28,8 @@ def parse_date_range(start_date_str, end_date_str):
         end_date = datetime.strptime(end_date_str.strip(), '%Y-%m-%d').date()
     except (ValueError, TypeError):
         return None
-    start_naive = datetime.combine(start_date, time(0, 1, 0))
-    end_naive = datetime.combine(end_date, time(23, 59, 59, 999999))
+    start_naive = datetime.combine(start_date, START_OF_DAY_TIME)
+    end_naive = datetime.combine(end_date, END_OF_DAY_TIME)
     tz = timezone.get_current_timezone()
     start_dt = timezone.make_aware(start_naive, tz)
     end_dt = timezone.make_aware(end_naive, tz)

@@ -8,6 +8,7 @@ from decimal import Decimal
 from ..models import Product, Order, Category, Transaction, TransactionHistory, SuperSetting, OrderItem, User, QRStandOrder, ShareholderWithdrawal
 from ..serializers import SuperSettingSerializer, UserSerializer, TransactionHistorySerializer, QRStandOrderSerializer, OrderSerializer, ShareholderWithdrawalSerializer
 from ..utils.subscription_helpers import get_effective_subscription_end_date, get_subscription_state
+from ..utils.date_helpers import START_OF_DAY_TIME, parse_date_range
 
 # Allowed dashboard date filter values; invalid values fall back to 'today'
 DASHBOARD_DATE_FILTER_VALUES = {'today', 'yesterday', 'weekly', 'monthly', 'yearly', 'all'}
@@ -28,26 +29,26 @@ def get_dashboard_date_range(date_filter):
     today = now.date()
 
     if date_filter == 'today':
-        start_dt = timezone.make_aware(datetime.combine(today, datetime.min.time()))
+        start_dt = timezone.make_aware(datetime.combine(today, START_OF_DAY_TIME))
         end_dt = start_dt + timedelta(days=1) - timedelta(microseconds=1)
         return start_dt, end_dt
 
     if date_filter == 'yesterday':
         yesterday = today - timedelta(days=1)
-        start_dt = timezone.make_aware(datetime.combine(yesterday, datetime.min.time()))
+        start_dt = timezone.make_aware(datetime.combine(yesterday, START_OF_DAY_TIME))
         end_dt = start_dt + timedelta(days=1) - timedelta(microseconds=1)
         return start_dt, end_dt
 
     if date_filter == 'weekly':
         # Last 7 days including today
         start_date = today - timedelta(days=6)
-        start_dt = timezone.make_aware(datetime.combine(start_date, datetime.min.time()))
-        end_dt = timezone.make_aware(datetime.combine(today, datetime.min.time())) + timedelta(days=1) - timedelta(microseconds=1)
+        start_dt = timezone.make_aware(datetime.combine(start_date, START_OF_DAY_TIME))
+        end_dt = timezone.make_aware(datetime.combine(today, START_OF_DAY_TIME)) + timedelta(days=1) - timedelta(microseconds=1)
         return start_dt, end_dt
 
     if date_filter == 'monthly':
         # Current calendar month
-        start_dt = timezone.make_aware(datetime.combine(today.replace(day=1), datetime.min.time()))
+        start_dt = timezone.make_aware(datetime.combine(today.replace(day=1), START_OF_DAY_TIME))
         if today.month == 12:
             end_date = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
         else:
@@ -57,7 +58,7 @@ def get_dashboard_date_range(date_filter):
 
     if date_filter == 'yearly':
         # Current calendar year
-        start_dt = timezone.make_aware(datetime.combine(today.replace(month=1, day=1), datetime.min.time()))
+        start_dt = timezone.make_aware(datetime.combine(today.replace(month=1, day=1), START_OF_DAY_TIME))
         end_dt = timezone.make_aware(datetime.combine(today.replace(month=12, day=31), datetime.max.time()))
         return start_dt, end_dt
 
@@ -96,19 +97,24 @@ def dashboard_stats(request):
             start_date = (timezone.now() - timedelta(days=30)).date()
         if not end_date:
             end_date = timezone.now().date()
-        
+        # Normalize to date objects if they came as strings from GET
+        if isinstance(start_date, str):
+            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+        if isinstance(end_date, str):
+            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+
         # Basic counts
         products = Product.objects.filter(**user_filter).count()
         orders = Order.objects.filter(**user_filter).count()
         categories = Category.objects.filter(**user_filter).count()
         transactions = TransactionHistory.objects.filter(**user_filter).count()
-        
-        # Order statistics
+
+        # Order statistics (use 00:01–23:59:59 for selected range)
         orders_queryset = Order.objects.filter(**user_filter)
-        if start_date:
-            orders_queryset = orders_queryset.filter(created_at__date__gte=start_date)
-        if end_date:
-            orders_queryset = orders_queryset.filter(created_at__date__lte=end_date)
+        date_range = parse_date_range(start_date.isoformat(), end_date.isoformat())
+        if date_range:
+            start_dt, end_dt = date_range
+            orders_queryset = orders_queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         
         total_revenue = orders_queryset.aggregate(
             total=Sum('total')

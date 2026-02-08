@@ -10,6 +10,7 @@ from ..models import (
     SuperSetting, ShareholderWithdrawal,
 )
 from ..utils.subscription_helpers import get_effective_subscription_end_date
+from ..utils.date_helpers import parse_date_range
 
 
 @api_view(['GET'])
@@ -51,12 +52,13 @@ def cafe_report(request):
                     {'error': 'Invalid date format. Use YYYY-MM-DD'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        
-        # Orders in date range
-        orders_queryset = Order.objects.filter(**user_filter).filter(
-            created_at__date__gte=start_date,
-            created_at__date__lte=end_date
-        )
+
+        # Orders in date range (00:01 start, 23:59:59 end of selected dates)
+        orders_queryset = Order.objects.filter(**user_filter)
+        date_range = parse_date_range(start_date.isoformat(), end_date.isoformat())
+        if date_range:
+            start_dt, end_dt = date_range
+            orders_queryset = orders_queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         
         # Summary statistics
         total_orders = orders_queryset.count()
@@ -188,12 +190,13 @@ def order_report(request):
                     {'error': 'Invalid date format. Use YYYY-MM-DD'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        
-        # Orders in date range
-        orders_queryset = Order.objects.filter(**user_filter).filter(
-            created_at__date__gte=start_date,
-            created_at__date__lte=end_date
-        )
+
+        # Orders in date range (00:01 start, 23:59:59 end of selected dates)
+        orders_queryset = Order.objects.filter(**user_filter)
+        date_range = parse_date_range(start_date.isoformat(), end_date.isoformat())
+        if date_range:
+            start_dt, end_dt = date_range
+            orders_queryset = orders_queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         
         # Summary
         total_orders = orders_queryset.count()
@@ -307,12 +310,13 @@ def product_report(request):
                     {'error': 'Invalid date format. Use YYYY-MM-DD'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        
-        # Orders in date range
-        orders_queryset = Order.objects.filter(**user_filter).filter(
-            created_at__date__gte=start_date,
-            created_at__date__lte=end_date
-        )
+
+        # Orders in date range (00:01 start, 23:59:59 end of selected dates)
+        orders_queryset = Order.objects.filter(**user_filter)
+        date_range = parse_date_range(start_date.isoformat(), end_date.isoformat())
+        if date_range:
+            start_dt, end_dt = date_range
+            orders_queryset = orders_queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         
         # Product sales statistics
         product_stats = OrderItem.objects.filter(
@@ -407,18 +411,15 @@ def finance_report(request):
                     {'error': 'Invalid date format. Use YYYY-MM-DD'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        
-        # Orders in date range
-        orders_queryset = Order.objects.filter(**user_filter).filter(
-            created_at__date__gte=start_date,
-            created_at__date__lte=end_date
-        )
-        
-        # Transactions in date range
-        transactions_queryset = TransactionHistory.objects.filter(**user_filter).filter(
-            created_at__date__gte=start_date,
-            created_at__date__lte=end_date
-        )
+
+        # Orders and transactions in date range (00:01 start, 23:59:59 end of selected dates)
+        orders_queryset = Order.objects.filter(**user_filter)
+        transactions_queryset = TransactionHistory.objects.filter(**user_filter)
+        date_range = parse_date_range(start_date.isoformat(), end_date.isoformat())
+        if date_range:
+            start_dt, end_dt = date_range
+            orders_queryset = orders_queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
+            transactions_queryset = transactions_queryset.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         # Hide whole UG payment rows from vendor
         if not request.user.is_superuser:
             transactions_queryset = transactions_queryset.exclude(
@@ -525,6 +526,8 @@ def vendor_report(request):
         else:
             end_date = timezone.now().date()
             start_date = end_date - timedelta(days=29)
+        date_range = parse_date_range(start_date.isoformat(), end_date.isoformat())
+        start_dt, end_dt = date_range if date_range else (None, None)
         vendors_qs = User.objects.filter(is_superuser=False).order_by('-id')
         setting = SuperSetting.objects.first()
         due_threshold = getattr(setting, 'due_threshold', 1000) if setting else 1000
@@ -539,11 +542,9 @@ def vendor_report(request):
             Q(expire_date__isnull=True, subscription_end_date__lt=today, subscription_end_date__isnull=False)
         ).count()
         due_blocked_vendors = vendors_qs.filter(due_balance__gte=due_threshold).count()
-        orders_in_period = Order.objects.filter(
-            user__in=vendors_qs,
-            created_at__date__gte=start_date,
-            created_at__date__lte=end_date
-        )
+        orders_in_period = Order.objects.filter(user__in=vendors_qs)
+        if start_dt is not None and end_dt is not None:
+            orders_in_period = orders_in_period.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         total_vendor_revenue = orders_in_period.aggregate(total=Sum('total'))['total'] or Decimal('0')
         total_due_amount = vendors_qs.aggregate(s=Sum('due_balance'))['s'] or 0
         vendors_by_status = [
@@ -553,11 +554,11 @@ def vendor_report(request):
             {'status': 'expired', 'count': expired_vendors},
             {'status': 'due_blocked', 'count': due_blocked_vendors},
         ]
+        top_vendors_revenue_qs = Order.objects.all()
+        if start_dt is not None and end_dt is not None:
+            top_vendors_revenue_qs = top_vendors_revenue_qs.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         top_vendors_revenue = (
-            Order.objects.filter(
-                created_at__date__gte=start_date,
-                created_at__date__lte=end_date
-            )
+            top_vendors_revenue_qs
             .values('user_id')
             .annotate(total_revenue=Sum('total'), total_orders=Count('id'))
             .order_by('-total_revenue')[:15]
@@ -660,17 +661,20 @@ def shareholder_report(request):
         else:
             end_date = timezone.now().date()
             start_date = end_date - timedelta(days=89)
+        date_range = parse_date_range(start_date.isoformat(), end_date.isoformat())
+        start_dt, end_dt = date_range if date_range else (None, None)
         shareholders = User.objects.filter(is_shareholder=True).order_by('-share_percentage')
         setting = SuperSetting.objects.first()
         next_distribution_day = getattr(setting, 'share_distribution_day', 7) if setting else 7
         total_shareholders = shareholders.count()
         total_shareholder_balance = sum(s.balance for s in shareholders)
-        total_distributed = TransactionHistory.objects.filter(
+        total_distributed_qs = TransactionHistory.objects.filter(
             transaction_category='share_distribution',
-            status='success',
-            created_at__date__gte=start_date,
-            created_at__date__lte=end_date
-        ).aggregate(t=Sum('amount'))['t'] or Decimal('0')
+            status='success'
+        )
+        if start_dt is not None and end_dt is not None:
+            total_distributed_qs = total_distributed_qs.filter(created_at__gte=start_dt, created_at__lte=end_dt)
+        total_distributed = total_distributed_qs.aggregate(t=Sum('amount'))['t'] or Decimal('0')
         total_withdrawals = ShareholderWithdrawal.objects.filter(
             status='approved'
         ).aggregate(t=Sum('amount'))['t'] or 0
@@ -811,11 +815,11 @@ def customer_report(request):
                     {'error': 'Invalid date format. Use YYYY-MM-DD'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-        orders_qs = Order.objects.filter(
-            user=vendor,
-            created_at__date__gte=start_date,
-            created_at__date__lte=end_date
-        )
+        orders_qs = Order.objects.filter(user=vendor)
+        date_range = parse_date_range(start_date.isoformat(), end_date.isoformat())
+        if date_range:
+            start_dt, end_dt = date_range
+            orders_qs = orders_qs.filter(created_at__gte=start_dt, created_at__lte=end_dt)
         customer_agg = (
             orders_qs.values('name', 'phone', 'country_code')
             .annotate(
